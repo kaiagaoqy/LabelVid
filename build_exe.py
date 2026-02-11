@@ -41,6 +41,9 @@ def clean_build():
 
 def check_dependencies():
     """Check if required dependencies are installed."""
+    print(f"Python: {sys.executable}")
+    print()
+    
     try:
         import PyInstaller
         print(f"✓ PyInstaller {PyInstaller.__version__} found")
@@ -56,14 +59,17 @@ def check_dependencies():
     
     for pkg, desc in optional.items():
         try:
-            __import__(pkg)
-            print(f"✓ {pkg} found ({desc})")
+            mod = __import__(pkg)
+            version = getattr(mod, '__version__', 'unknown')
+            print(f"✓ {pkg} {version} found ({desc})")
         except ImportError:
             print(f"○ {pkg} not found ({desc} - optional)")
 
 
 def build_executable(onedir=False, debug=False):
     """Build the executable using PyInstaller."""
+    import os
+    
     print("\n" + "="*50)
     print("Building LabelVid executable...")
     print("="*50 + "\n")
@@ -104,21 +110,44 @@ def build_executable(onedir=False, debug=False):
         'natsort',
     ]
     
-    # Add optional imports if available
+    # Collect data files
+    datas = []
+    
+    # Add optional imports and their data files if available
     try:
         import osam
+        import os.path as osp
         hidden_imports.extend(['osam', 'imgviz'])
+        
+        # Add osam data files
+        osam_path = osp.dirname(osam.__file__)
+        osam_models = osp.join(osam_path, '_models')
+        if osp.exists(osam_models):
+            datas.append((osam_models, 'osam/_models'))
+            print(f"  Adding osam data files from {osam_models}")
     except ImportError:
         pass
     
     try:
         import whisper
+        import os.path as osp
         hidden_imports.append('whisper')
+        
+        # Add whisper data files
+        whisper_path = osp.dirname(whisper.__file__)
+        whisper_assets = osp.join(whisper_path, 'assets')
+        if osp.exists(whisper_assets):
+            datas.append((whisper_assets, 'whisper/assets'))
+            print(f"  Adding whisper data files from {whisper_assets}")
     except ImportError:
         pass
     
     for imp in hidden_imports:
         cmd.extend(['--hidden-import', imp])
+    
+    # Add data files
+    for src, dst in datas:
+        cmd.extend(['--add-data', f'{src}{os.pathsep}{dst}'])
     
     # Exclude unnecessary modules
     excludes = ['tkinter', 'matplotlib', 'IPython', 'jupyter', 'notebook']

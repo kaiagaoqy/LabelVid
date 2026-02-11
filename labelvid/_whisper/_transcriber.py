@@ -4,11 +4,42 @@ from __future__ import annotations
 
 import os
 import os.path as osp
+import shutil
 import tempfile
 from dataclasses import dataclass
 from typing import Callable
 
 from loguru import logger
+
+
+def _find_executable(name: str) -> str | None:
+    """Find executable in system PATH.
+    
+    Args:
+        name: Name of executable (e.g., 'ffmpeg', 'ffprobe')
+        
+    Returns:
+        Full path to executable or None if not found
+    """
+    # First try shutil.which
+    path = shutil.which(name)
+    if path:
+        return path
+    
+    # Common installation paths
+    common_paths = [
+        f"/usr/local/bin/{name}",
+        f"/opt/homebrew/bin/{name}",  # Apple Silicon Homebrew
+        f"/usr/bin/{name}",
+        f"/opt/local/bin/{name}",  # MacPorts
+        os.path.expanduser(f"~/bin/{name}"),
+    ]
+    
+    for path in common_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    
+    return None
 
 # Available Whisper models
 # Reference: https://github.com/openai/whisper
@@ -106,9 +137,15 @@ class WhisperTranscriber:
         try:
             import subprocess
 
+            # Find ffprobe executable
+            ffprobe = _find_executable("ffprobe")
+            if not ffprobe:
+                logger.warning("ffprobe not found in PATH. Install ffmpeg to check audio streams.")
+                return True  # Assume has audio if ffprobe not available
+
             # Use ffprobe to check for audio streams
             cmd = [
-                "ffprobe",
+                ffprobe,
                 "-v", "error",
                 "-select_streams", "a",  # Select audio streams only
                 "-show_entries", "stream=codec_type",
@@ -153,9 +190,20 @@ class WhisperTranscriber:
         try:
             import subprocess
 
+            # Find ffmpeg executable
+            ffmpeg = _find_executable("ffmpeg")
+            if not ffmpeg:
+                raise FileNotFoundError(
+                    "ffmpeg not found in system PATH.\n"
+                    "Please install ffmpeg:\n"
+                    "  macOS: brew install ffmpeg\n"
+                    "  Ubuntu: sudo apt install ffmpeg\n"
+                    "  Windows: choco install ffmpeg or scoop install ffmpeg"
+                )
+
             # Use ffmpeg to extract audio
             cmd = [
-                "ffmpeg",
+                ffmpeg,
                 "-i", video_path,
                 "-vn",  # No video
                 "-acodec", "pcm_s16le",  # PCM 16-bit
@@ -164,7 +212,7 @@ class WhisperTranscriber:
                 "-y",  # Overwrite
                 output_path,
             ]
-            subprocess.run(cmd, capture_output=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, check=True)
             logger.info("Extracted audio to: {}", output_path)
             return output_path
         except subprocess.CalledProcessError as e:
@@ -176,8 +224,8 @@ class WhisperTranscriber:
                 ) from e
             logger.error("Failed to extract audio: {}", error_msg)
             raise
-        except FileNotFoundError:
-            logger.error("ffmpeg not found. Please install ffmpeg.")
+        except FileNotFoundError as e:
+            logger.error("ffmpeg not found: {}", e)
             raise
 
     def transcribe(

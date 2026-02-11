@@ -8,6 +8,7 @@ import io
 import json
 import os
 import os.path as osp
+import shutil
 import types
 import time
 from dataclasses import dataclass
@@ -61,6 +62,36 @@ except ImportError:
 
 VIDEO_EXTENSIONS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v"]
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]
+
+
+def _find_executable(name: str) -> str | None:
+    """Find executable in system PATH.
+    
+    Args:
+        name: Name of executable (e.g., 'ffmpeg', 'ffprobe')
+        
+    Returns:
+        Full path to executable or None if not found
+    """
+    # First try shutil.which
+    path = shutil.which(name)
+    if path:
+        return path
+    
+    # Common installation paths
+    common_paths = [
+        f"/usr/local/bin/{name}",
+        f"/opt/homebrew/bin/{name}",  # Apple Silicon Homebrew
+        f"/usr/bin/{name}",
+        f"/opt/local/bin/{name}",  # MacPorts
+        os.path.expanduser(f"~/bin/{name}"),
+    ]
+    
+    for path in common_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    
+    return None
 
 
 class AppMode(enum.Enum):
@@ -1110,8 +1141,14 @@ class MainWindow(QtWidgets.QMainWindow):
             import subprocess
             import json as _json
             
+            # Find ffprobe executable
+            ffprobe = _find_executable("ffprobe")
+            if not ffprobe:
+                logger.warning("ffprobe not found in PATH. Using OpenCV duration fallback.")
+                return None
+            
             cmd = [
-                "ffprobe",
+                ffprobe,
                 "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "json",
@@ -1858,8 +1895,14 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             import subprocess
 
+            # Find ffprobe executable
+            ffprobe = _find_executable("ffprobe")
+            if not ffprobe:
+                logger.warning("ffprobe not found. Cannot check audio stream.")
+                return True  # Assume has audio if ffprobe not available
+
             cmd = [
-                "ffprobe",
+                ffprobe,
                 "-v", "error",
                 "-select_streams", "a",
                 "-show_entries", "stream=codec_type",
@@ -1890,13 +1933,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._cleanup_extracted_audio()
 
         try:
+            # Find ffmpeg executable
+            ffmpeg = _find_executable("ffmpeg")
+            if not ffmpeg:
+                logger.error("ffmpeg not found in PATH. Cannot extract audio.")
+                QMessageBox.warning(
+                    self,
+                    "FFmpeg Not Found",
+                    "ffmpeg is required for audio playback but was not found.\n\n"
+                    "Please install ffmpeg:\n"
+                    "• macOS: brew install ffmpeg\n"
+                    "• Ubuntu: sudo apt install ffmpeg\n"
+                    "• Windows: choco install ffmpeg"
+                )
+                return None
+
             # Create temp file for extracted audio
             fd, audio_path = tempfile.mkstemp(suffix=".wav", prefix="labelvid_audio_")
             os.close(fd)
 
             # Use ffmpeg to extract and convert audio to WAV (universal format)
             cmd = [
-                "ffmpeg",
+                ffmpeg,
                 "-i", video_path,
                 "-vn",  # No video
                 "-acodec", "pcm_s16le",  # PCM 16-bit (universal)
@@ -1918,9 +1976,6 @@ class MainWindow(QtWidgets.QMainWindow):
             logger.info("Extracted audio to: {}", audio_path)
             return audio_path
 
-        except FileNotFoundError:
-            logger.error("ffmpeg not found. Please install ffmpeg for audio playback.")
-            return None
         except Exception as e:
             logger.error("Failed to extract audio: {}", e)
             return None
