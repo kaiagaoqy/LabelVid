@@ -9,6 +9,8 @@ from .clip_list_widget import ClipListWidget
 from .clip_list_widget import ClipListWidgetItem
 from .clip_timeline_widget import ClipTimelineWidget
 from .label_dialog import LabelDialog
+from .label_dialog import set_label_dialog_object_list
+from .label_dialog import get_label_dialog_object_list
 from .object_list_dialog import ObjectListDialog
 from .video_player_widget import VideoPlayerWidget
 
@@ -24,4 +26,6 @@ __all__ = [
     "VideoPlayerWidget",
     "get_object_list",
     "set_object_list",
+    "set_label_dialog_object_list",
+    "get_label_dialog_object_list",
 ]

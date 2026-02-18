@@ -8,7 +8,9 @@ import io
 import json
 import os
 import os.path as osp
+import platform
 import shutil
+import sys
 import types
 import time
 from dataclasses import dataclass
@@ -40,6 +42,7 @@ from labelvid.widgets import get_object_list
 from labelvid.widgets import LabelDialog
 from labelvid.widgets import ObjectListDialog
 from labelvid.widgets import set_object_list
+from labelvid.widgets import set_label_dialog_object_list
 from labelvid.widgets import VideoPlayerWidget
 
 # Try to import Whisper support
@@ -71,7 +74,12 @@ IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]
 
 
 def _find_executable(name: str) -> str | None:
-    """Find executable in system PATH.
+    """Find executable in system PATH or bundled with app.
+    
+    Priority:
+    1. Bundled executable (from PyInstaller package)
+    2. System PATH (shutil.which)
+    3. Common installation paths
     
     Args:
         name: Name of executable (e.g., 'ffmpeg', 'ffprobe')
@@ -79,12 +87,34 @@ def _find_executable(name: str) -> str | None:
     Returns:
         Full path to executable or None if not found
     """
-    # First try shutil.which
+    from pathlib import Path
+    
+    # 1. First try bundled executable (PyInstaller)
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller bundle
+        bundle_dir = Path(sys._MEIPASS)
+        
+        # Check for platform-specific binary name
+        arch = platform.machine()
+        bundled_exec = bundle_dir / f"{name}-macos-{arch}"
+        
+        if bundled_exec.exists() and os.access(bundled_exec, os.X_OK):
+            logger.info(f"Using bundled {name}: {bundled_exec}")
+            return str(bundled_exec)
+        
+        # Also try without suffix
+        bundled_exec = bundle_dir / name
+        if bundled_exec.exists() and os.access(bundled_exec, os.X_OK):
+            logger.info(f"Using bundled {name}: {bundled_exec}")
+            return str(bundled_exec)
+    
+    # 2. Try system PATH
     path = shutil.which(name)
     if path:
+        logger.info(f"Using system {name}: {path}")
         return path
     
-    # Common installation paths
+    # 3. Common installation paths
     common_paths = [
         f"/usr/local/bin/{name}",
         f"/opt/homebrew/bin/{name}",  # Apple Silicon Homebrew
@@ -95,8 +125,10 @@ def _find_executable(name: str) -> str | None:
     
     for path in common_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
+            logger.info(f"Found {name} at: {path}")
             return path
     
+    logger.warning(f"{name} not found in bundled, system PATH, or common paths")
     return None
 
 
@@ -821,12 +853,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
         actionLayout.addStretch()
 
+        # Auto-save checkbox
+        self.autoSaveCheckbox = QtWidgets.QCheckBox("Auto-save to image location")
+        self.autoSaveCheckbox.setToolTip(
+            "When checked, save annotation directly to current image location (Ctrl+S)\n"
+            "When unchecked, show file dialog (Ctrl+Shift+S)"
+        )
+        self.autoSaveCheckbox.setChecked(True)  # Default to auto-save
+        actionLayout.addWidget(self.autoSaveCheckbox)
+        
         # Save annotation button
-        self.saveAnnotationBtn = QtWidgets.QPushButton("💾 Save Annotation")
+        self.saveAnnotationBtn = QtWidgets.QPushButton("💾 Save")
         self.saveAnnotationBtn.setStyleSheet(
             "background-color: #4CAF50; color: white; padding: 5px 15px;"
         )
-        self.saveAnnotationBtn.clicked.connect(self._save_annotation)
+        self.saveAnnotationBtn.clicked.connect(self._on_save_annotation_clicked)
+        self.saveAnnotationBtn.setToolTip("Save annotation (Ctrl+S for auto-save, Ctrl+Shift+S for dialog)")
         actionLayout.addWidget(self.saveAnnotationBtn)
 
         layout.addLayout(actionLayout)
@@ -1087,6 +1129,12 @@ class MainWindow(QtWidgets.QMainWindow):
             "Ctrl+Shift+S",
             tip=self.tr("Save annotation to JSON file"),
         )
+        auto_save_annotation = action(
+            self.tr("Auto Save Annotation"),
+            lambda: self._save_annotation(auto_save=True),
+            "Ctrl+S",
+            tip=self.tr("Auto save annotation to current image location"),
+        )
 
         self.actions = types.SimpleNamespace(
             open_file=open_file,
@@ -1101,6 +1149,8 @@ class MainWindow(QtWidgets.QMainWindow):
             prev_frame=prev_frame,
             next_frame=next_frame,
             mark_start=mark_start,
+            save_annotation=save_annotation,
+            auto_save_annotation=auto_save_annotation,
             mark_end=mark_end,
             delete_clip=delete_clip,
             jump_back=jump_back,
@@ -1118,7 +1168,6 @@ class MainWindow(QtWidgets.QMainWindow):
             edit_shape_label=edit_shape_label,
             delete_shape=delete_shape,
             undo_shape=undo_shape,
-            save_annotation=save_annotation,
             about=action(
                 text=f"&About {__appname__}",
                 slot=functools.partial(
@@ -1158,6 +1207,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menus.file.addSeparator()
         self.menus.file.addAction(self.actions.save_clips)
         self.menus.file.addAction(self.actions.load_clips)
+        self.menus.file.addSeparator()
+        self.menus.file.addAction(self.actions.auto_save_annotation)
         self.menus.file.addAction(self.actions.save_annotation)
         self.menus.file.addSeparator()
         self.menus.file.addAction(self.actions.extract)
@@ -1194,6 +1245,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menus.annotation.addSeparator()
         self.menus.annotation.addAction(self.actions.edit_mode)
         self.menus.annotation.addSeparator()
+        self.menus.annotation.addAction(self.actions.auto_save_annotation)
         self.menus.annotation.addAction(self.actions.save_annotation)
 
         # Help menu
@@ -1353,9 +1405,9 @@ class MainWindow(QtWidgets.QMainWindow):
             # Reset output directory for new video - will be created on first use
             self._video_output_dir = None
             
-            # Set auto-save path in video output directory: <video_dir>/<video_name>/clips.csv
+            # Set auto-save path in video output directory: <video_dir>/<video_name>/clips.json
             video_output_dir = self._get_video_output_dir()  # Creates <video_dir>/<video_name>/
-            self._auto_save_path = osp.join(video_output_dir, "clips.csv") if video_output_dir else None
+            self._auto_save_path = osp.join(video_output_dir, "clips.json") if video_output_dir else None
 
             # Update UI
             self.timelineSlider.setMaximum(max(0, self._total_frames - 1))
@@ -1448,10 +1500,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._auto_save_path:
             return
             
-        # Check new location: <video_dir>/<video_name>/clips.csv
+        # Check new location: <video_dir>/<video_name>/clips.json
         if osp.exists(self._auto_save_path):
             try:
-                self._read_clips_csv(self._auto_save_path)
+                if self._auto_save_path.endswith('.json'):
+                    self._read_clips_json(self._auto_save_path)
+                else:
+                    self._read_clips_csv(self._auto_save_path)
                 logger.info(
                     "Auto-loaded {} clips from {}", len(self._clips), self._auto_save_path
                 )
@@ -1464,8 +1519,20 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 logger.warning("Failed to auto-load clips from {}: {}", self._auto_save_path, e)
         
-        # Also check legacy location: <video_path>_clips.csv
+        # Also check legacy CSV locations
         if self.filename:
+            # Try JSON first (new format)
+            video_output_dir = self._get_video_output_dir()
+            json_path = osp.join(video_output_dir, "clips.json") if video_output_dir else None
+            if json_path and osp.exists(json_path):
+                try:
+                    self._read_clips_json(json_path)
+                    logger.info("Auto-loaded {} clips from legacy JSON {}", len(self._clips), json_path)
+                    return
+                except Exception as e:
+                    logger.warning("Failed to auto-load clips from legacy JSON {}: {}", json_path, e)
+            
+            # Try CSV (old format)
             legacy_path = osp.splitext(self.filename)[0] + "_clips.csv"
             if osp.exists(legacy_path):
                 try:
@@ -1638,12 +1705,15 @@ class MainWindow(QtWidgets.QMainWindow):
         return hours * 3600 + minutes * 60 + seconds
 
     def _auto_save_clips(self) -> None:
-        """Auto-save clips to CSV file."""
+        """Auto-save clips to JSON file."""
         if not self._auto_save_path:
             return
 
         try:
-            self._write_clips_csv(self._auto_save_path)
+            if self._auto_save_path.endswith('.json'):
+                self._write_clips_json(self._auto_save_path)
+            else:
+                self._write_clips_csv(self._auto_save_path)
             self._is_changed = False
             logger.debug("Auto-saved {} clips to {}", len(self._clips), self._auto_save_path)
             self.statusBar().showMessage(
@@ -2956,14 +3026,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             # Save the new object list
             objects = dialog.get_objects()
-            set_object_list(objects)
+            set_object_list(objects)  # For ClipDialog (Video Mode)
+            set_label_dialog_object_list(objects)  # For LabelDialog (Image Mode)
             
             # Show confirmation
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("Object List Updated"),
                 self.tr(f"Object list updated with {len(objects)} objects.\n"
-                       "Labels will now be available as dropdown in clip dialogs."),
+                       "Labels will now be available as dropdown in both\n"
+                       "Video Mode (clip dialogs) and Image Mode (label dialogs)."),
             )
             
             logger.info("Object list updated with {} objects", len(objects))
@@ -3480,7 +3552,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # Save/Load clips methods
 
     def _save_clips(self) -> None:
-        """Save clips to a CSV file."""
+        """Save clips to a JSON file."""
         if not self._clips:
             QMessageBox.information(
                 self,
@@ -3490,9 +3562,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         default_name = (
-            osp.splitext(osp.basename(self.filename))[0] + "_clips.csv"
+            osp.splitext(osp.basename(self.filename))[0] + "_clips.json"
             if self.filename
-            else "clips.csv"
+            else "clips.json"
         )
         default_path = osp.join(
             self.output_dir or osp.dirname(self.filename or "."), default_name
@@ -3502,30 +3574,65 @@ class MainWindow(QtWidgets.QMainWindow):
             self,
             self.tr("Save Clips"),
             default_path,
-            self.tr("CSV files (*.csv)"),
+            self.tr("JSON files (*.json);;CSV files (*.csv)"),
         )
 
         if filename:
-            self._write_clips_csv(filename)
+            if filename.endswith('.json'):
+                self._write_clips_json(filename)
+            else:
+                self._write_clips_csv(filename)
             self._is_changed = False
             self.statusBar().showMessage(self.tr("Clips saved to %s") % filename)
 
     def _load_clips(self) -> None:
-        """Load clips from a CSV file."""
+        """Load clips from a JSON or CSV file."""
         path = osp.dirname(self.filename) if self.filename else "."
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             self.tr("Load Clips"),
             path,
-            self.tr("CSV files (*.csv)"),
+            self.tr("JSON files (*.json);;CSV files (*.csv);;All files (*)"),
         )
 
         if filename:
-            self._read_clips_csv(filename)
+            if filename.endswith('.json'):
+                self._read_clips_json(filename)
+            else:
+                self._read_clips_csv(filename)
             self._update_clip_list()
             self.statusBar().showMessage(
                 self.tr("Loaded %d clips from %s") % (len(self._clips), filename)
             )
+
+    def _write_clips_json(self, filename: str) -> None:
+        """Write clips to JSON file."""
+        try:
+            video_basename = osp.basename(self.filename) if self.filename else ""
+            clips_data = {
+                "video_file": video_basename,
+                "clips": [
+                    {
+                        "label": clip.label,
+                        "start_frame": clip.start_frame,
+                        "end_frame": clip.end_frame,
+                        "detection_score": clip.detection_score,
+                        "recognition_score": clip.recognition_score,
+                        "is_hazard": clip.is_hazard,
+                        "description": clip.description,
+                        "recognition": clip.recognition,
+                        "scene": clip.scene,
+                        "category_id": clip.category_id,
+                        "instance_id": clip.instance_id,
+                    }
+                    for clip in self._clips
+                ]
+            }
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(clips_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error("Failed to write clips JSON {}: {}", filename, e)
+            raise
 
     def _write_clips_csv(self, filename: str) -> None:
         """Write clips to CSV file."""
@@ -3556,6 +3663,34 @@ class MainWindow(QtWidgets.QMainWindow):
                     ])
         except Exception as e:
             logger.error("Failed to write clips CSV {}: {}", filename, e)
+            raise
+
+    def _read_clips_json(self, filename: str) -> None:
+        """Read clips from JSON file."""
+        self._clips.clear()
+        try:
+            with open(filename, encoding="utf-8") as f:
+                data = json.load(f)
+                clips_list = data.get("clips", data) if isinstance(data, dict) else data
+                
+                for i, clip_data in enumerate(clips_list):
+                    clip = VideoClip(
+                        label=clip_data["label"],
+                        start_frame=clip_data["start_frame"],
+                        end_frame=clip_data["end_frame"],
+                        color=_get_color_for_index(i),
+                        detection_score=clip_data.get("detection_score"),
+                        recognition_score=clip_data.get("recognition_score"),
+                        is_hazard=clip_data.get("is_hazard"),
+                        description=clip_data.get("description", ""),
+                        recognition=clip_data.get("recognition", ""),
+                        scene=clip_data.get("scene", ""),
+                        category_id=clip_data.get("category_id", 0),
+                        instance_id=clip_data.get("instance_id", 0),
+                    )
+                    self._clips.append(clip)
+        except Exception as e:
+            logger.error("Failed to read clips JSON {}: {}", filename, e)
             raise
 
     def _read_clips_csv(self, filename: str) -> None:
@@ -3636,7 +3771,7 @@ class MainWindow(QtWidgets.QMainWindow):
             <video_dir>/<video_name>/frames/
             <video_dir>/<video_name>/annotations/
             <video_dir>/<video_name>/captions/
-            <video_dir>/<video_name>/clips.csv
+            <video_dir>/<video_name>/clips.json
         
         By default, uses the video's directory as the base. If prompt=True,
         allows user to select a different base directory.
@@ -3715,6 +3850,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         extracted_count = 0
         csv_data: list[dict] = []
+        
+        # Dictionary to store frame paths for each clip (for updating clips.json)
+        clip_frame_paths: dict[int, list[str]] = {}
 
         for i, clip in enumerate(self._clips):
             if progress.wasCanceled():
@@ -3757,6 +3895,12 @@ class MainWindow(QtWidgets.QMainWindow):
                         "end_image": osp.basename(end_frame),
                     }
                 )
+                
+                # Store frame paths for this clip (relative to video output dir)
+                clip_frame_paths[i] = [
+                    osp.relpath(start_frame, self._video_output_dir),
+                    osp.relpath(end_frame, self._video_output_dir),
+                ]
 
         progress.setValue(len(self._clips) * 2)
 
@@ -3775,6 +3919,9 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             writer.writeheader()
             writer.writerows(csv_data)
+        
+        # Update clips.json with frame_paths
+        self._update_clips_json_with_frame_paths(clip_frame_paths)
 
         QMessageBox.information(
             self,
@@ -3792,6 +3939,62 @@ class MainWindow(QtWidgets.QMainWindow):
         logger.info(
             "Extracted frames from {} clips to {}", extracted_count, frames_dir
         )
+    
+    def _update_clips_json_with_frame_paths(self, clip_frame_paths: dict[int, list[str]]) -> None:
+        """Update clips.json to add frame_paths for each clip."""
+        if not self._video_output_dir:
+            return
+        
+        clips_json_path = osp.join(self._video_output_dir, "clips.json")
+        
+        try:
+            # Read existing clips.json
+            if osp.exists(clips_json_path):
+                with open(clips_json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                # Create new structure
+                video_basename = osp.basename(self.filename) if self.filename else ""
+                data = {
+                    "video_file": video_basename,
+                    "clips": []
+                }
+            
+            # Ensure we have the clips structure
+            if "clips" not in data:
+                data["clips"] = []
+            
+            # Update or add frame_paths for each clip
+            for i, clip in enumerate(self._clips):
+                if i >= len(data["clips"]):
+                    # Add new clip entry
+                    data["clips"].append({
+                        "label": clip.label,
+                        "start_frame": clip.start_frame,
+                        "end_frame": clip.end_frame,
+                        "detection_score": clip.detection_score,
+                        "recognition_score": clip.recognition_score,
+                        "is_hazard": clip.is_hazard,
+                        "description": clip.description,
+                        "recognition": clip.recognition,
+                        "scene": clip.scene,
+                        "category_id": clip.category_id,
+                        "instance_id": clip.instance_id,
+                        "frame_paths": clip_frame_paths.get(i, [])
+                    })
+                else:
+                    # Update existing clip with frame_paths
+                    if i in clip_frame_paths:
+                        data["clips"][i]["frame_paths"] = clip_frame_paths[i]
+            
+            # Write updated clips.json
+            with open(clips_json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            logger.info("Updated clips.json with frame paths")
+            
+        except Exception as e:
+            logger.error("Failed to update clips.json with frame paths: {}", e)
 
     def _extract_single_frame(
         self, frame_num: int, output_dir: str, filename: str
@@ -3845,6 +4048,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Handle window close event."""
+        # Auto-save current annotation before closing if enabled and in image mode
+        if self._app_mode == AppMode.IMAGE and self.autoSaveCheckbox.isChecked() and self.canvas.shapes and self._is_changed:
+            self._save_annotation(auto_save=True)
+        
         if not self._can_continue():
             event.ignore()
             return
@@ -3877,6 +4084,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _switch_to_video_mode(self) -> None:
         """Switch to video clipping mode."""
+        # Auto-save current annotation before switching if enabled and in image mode
+        if self._app_mode == AppMode.IMAGE and self.autoSaveCheckbox.isChecked() and self.canvas.shapes and self._is_changed:
+            self._save_annotation(auto_save=True)
+        
         self._app_mode = AppMode.VIDEO
         self.modeToggleBtn.setText("🎬 Video Mode")
         self.modeToggleBtn.setChecked(False)
@@ -4046,12 +4257,16 @@ class MainWindow(QtWidgets.QMainWindow):
             if selected_id == 0:
                 return ImageModeSource.CURRENT_FRAME
             elif selected_id == 1:
-                # WST - need to select folder first
-                self._select_wst_folder()
-                if self._wst_frames_dir:
+                # WST - try to auto-load current video's frames folder first
+                if self._try_auto_load_frames_folder():
                     return ImageModeSource.WST
                 else:
-                    return ImageModeSource.CURRENT_FRAME
+                    # Auto-load failed, let user select folder manually
+                    self._select_wst_folder()
+                    if self._wst_frames_dir:
+                        return ImageModeSource.WST
+                    else:
+                        return ImageModeSource.CURRENT_FRAME
             elif selected_id == 2:
                 return ImageModeSource.AUTO_EXTRACT
             elif selected_id == 3:
@@ -4168,6 +4383,38 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._app_mode == AppMode.IMAGE:
             self._load_image_for_annotation()
 
+    def _try_auto_load_frames_folder(self) -> bool:
+        """Try to auto-load frames folder from current video's output directory.
+        
+        Returns:
+            True if frames folder was found and loaded, False otherwise.
+        """
+        if not self.filename or not self._video_output_dir:
+            return False
+        
+        # Try to find frames folder in video output directory
+        frames_dir = osp.join(self._video_output_dir, "frames")
+        
+        if osp.exists(frames_dir) and osp.isdir(frames_dir):
+            # Check if there are any image files
+            images = []
+            for ext in IMAGE_EXTENSIONS:
+                for f in os.listdir(frames_dir):
+                    if f.lower().endswith(ext):
+                        images.append(f)
+            
+            if images:
+                # Found frames folder with images, load it
+                self._scan_wst_folder(frames_dir)
+                logger.info("Auto-loaded frames folder: {}", frames_dir)
+                self.statusBar().showMessage(
+                    self.tr("Loaded %d frames from %s") % (len(images), frames_dir),
+                    3000
+                )
+                return True
+        
+        return False
+    
     def _select_wst_folder(self) -> None:
         """Select folder containing extracted frames for WST mode."""
         # Default to output_dir or video directory
@@ -4287,11 +4534,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Try to load existing annotation
             self._load_existing_annotation(image_path)
+            
+            # Get label hint from clips.json based on frame path
+            label_hint = self._get_label_hint_for_frame(image_path)
 
             logger.info("Loaded WST image: {}", image_path)
-            self.annotationStatusLabel.setText(
-                f"Image: {osp.basename(image_path)}"
-            )
+            
+            # Display image name and label hint (if available)
+            status_text = f"Image: {osp.basename(image_path)}"
+            if label_hint:
+                status_text += f" | Label: {label_hint}"
+            self.annotationStatusLabel.setText(status_text)
 
         except Exception as e:
             logger.error("Failed to load WST image {}: {}", image_path, e)
@@ -4301,6 +4554,83 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tr("Failed to load image: %s") % str(e),
             )
 
+    def _get_ids_for_frame_and_label(self, frame_path: str, label: str) -> tuple[int, int]:
+        """Get category_id and instance_id for a frame and label from clips.json."""
+        if not self._video_output_dir:
+            return 0, 0
+        
+        clips_json_path = osp.join(self._video_output_dir, "clips.json")
+        if not osp.exists(clips_json_path):
+            return 0, 0
+        
+        try:
+            with open(clips_json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Get relative path of the frame (relative to video output dir)
+            try:
+                rel_frame_path = osp.relpath(frame_path, self._video_output_dir)
+            except ValueError:
+                # If paths are on different drives (Windows), try basename matching
+                rel_frame_path = osp.basename(frame_path)
+            
+            # Search for this frame in clips
+            for clip_data in data.get("clips", []):
+                frame_paths = clip_data.get("frame_paths", [])
+                # Check if this frame is in the clip's frame_paths
+                for fp in frame_paths:
+                    # Normalize paths for comparison
+                    if osp.normpath(fp) == osp.normpath(rel_frame_path) or \
+                       osp.basename(fp) == osp.basename(rel_frame_path):
+                        # Check if label matches
+                        if clip_data.get("label", "") == label:
+                            return (
+                                clip_data.get("category_id", 0),
+                                clip_data.get("instance_id", 0)
+                            )
+            
+            return 0, 0
+            
+        except Exception as e:
+            logger.warning("Failed to get IDs from clips.json: {}", e)
+            return 0, 0
+    
+    def _get_label_hint_for_frame(self, frame_path: str) -> str | None:
+        """Get label hint for a frame from clips.json based on frame_paths."""
+        if not self._video_output_dir:
+            return None
+        
+        clips_json_path = osp.join(self._video_output_dir, "clips.json")
+        if not osp.exists(clips_json_path):
+            return None
+        
+        try:
+            with open(clips_json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Get relative path of the frame (relative to video output dir)
+            try:
+                rel_frame_path = osp.relpath(frame_path, self._video_output_dir)
+            except ValueError:
+                # If paths are on different drives (Windows), try basename matching
+                rel_frame_path = osp.basename(frame_path)
+            
+            # Search for this frame in clips
+            for clip_data in data.get("clips", []):
+                frame_paths = clip_data.get("frame_paths", [])
+                # Check if this frame is in the clip's frame_paths
+                for fp in frame_paths:
+                    # Normalize paths for comparison
+                    if osp.normpath(fp) == osp.normpath(rel_frame_path) or \
+                       osp.basename(fp) == osp.basename(rel_frame_path):
+                        return clip_data.get("label", "")
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("Failed to get label hint from clips.json: {}", e)
+            return None
+    
     def _load_existing_annotation(self, image_path: str) -> None:
         """Load existing annotation JSON file if it exists."""
         json_path = osp.splitext(image_path)[0] + ".json"
@@ -4317,6 +4647,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     flags=shape_dict.get("flags"),
                     group_id=shape_dict.get("group_id"),
                     description=shape_dict.get("description"),
+                    category_id=shape_dict.get("category_id", 0),
+                    instance_id=shape_dict.get("instance_id", 0),
                 )
                 for point in shape_dict["points"]:
                     shape.addPoint(QtCore.QPointF(point[0], point[1]))
@@ -4359,6 +4691,10 @@ class MainWindow(QtWidgets.QMainWindow):
         items = self.imageListWidget.selectedItems()
         if not items:
             return
+
+        # Auto-save current annotation before switching if enabled
+        if self.autoSaveCheckbox.isChecked() and self.canvas.shapes and self._is_changed:
+            self._save_annotation(auto_save=True)
 
         item = items[0]
         image_path = item.data(Qt.UserRole)
@@ -4490,14 +4826,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_new_shape(self) -> None:
         """Handle new shape created on canvas."""
+        # Get label hint and IDs for pre-filling
+        default_label = ""
+        default_category_id = 0
+        default_instance_id = 0
+        
+        if self._wst_current_image:
+            default_label = self._get_label_hint_for_frame(self._wst_current_image) or ""
+            if default_label:
+                # Get default category and instance ID
+                default_category_id, default_instance_id = self._get_ids_for_frame_and_label(
+                    self._wst_current_image, default_label
+                )
+        
         # Prompt for label
-        text, flags, group_id, description = self.labelDialog.popUp()
+        text, flags, group_id, description, category_id, instance_id = self.labelDialog.popUp(
+            text=default_label,
+            category_id=default_category_id,
+            instance_id=default_instance_id,
+        )
 
         if text:
             self.canvas.setLastLabel(text, flags)
             shape = self.canvas.shapes[-1]
             shape.group_id = group_id
             shape.description = description
+            shape.category_id = category_id
+            shape.instance_id = instance_id
+            
             self._update_shape_list()
             self._is_changed = True
             self.labelDialog.addLabelHistory(text)
@@ -4558,11 +4914,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if shape is None:
             return
 
-        text, flags, group_id, description = self.labelDialog.popUp(
+        text, flags, group_id, description, category_id, instance_id = self.labelDialog.popUp(
             text=shape.label,
             flags=shape.flags,
             group_id=shape.group_id,
             description=shape.description,
+            category_id=getattr(shape, 'category_id', 0),
+            instance_id=getattr(shape, 'instance_id', 0),
         )
 
         if text:
@@ -4570,6 +4928,8 @@ class MainWindow(QtWidgets.QMainWindow):
             shape.flags = flags
             shape.group_id = group_id
             shape.description = description
+            shape.category_id = category_id
+            shape.instance_id = instance_id
             self._update_shape_list()
             self._is_changed = True
 
@@ -4654,11 +5014,13 @@ class MainWindow(QtWidgets.QMainWindow):
         shape = self.canvas.selectedShapes[0]
         
         # Show label dialog
-        text, flags, group_id, description = self.labelDialog.popUp(
+        text, flags, group_id, description, category_id, instance_id = self.labelDialog.popUp(
             text=shape.label,
             flags=shape.flags,
             group_id=shape.group_id,
             description=shape.description,
+            category_id=getattr(shape, 'category_id', 0),
+            instance_id=getattr(shape, 'instance_id', 0),
         )
         
         if text is not None:
@@ -4666,6 +5028,8 @@ class MainWindow(QtWidgets.QMainWindow):
             shape.flags = flags
             shape.group_id = group_id
             shape.description = description
+            shape.category_id = category_id
+            shape.instance_id = instance_id
             self._update_shape_list()
             self._is_changed = True
             logger.info("Shape label changed to: {}", text)
@@ -4727,47 +5091,78 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.adjustSize()
         self.canvas.update()
 
-    def _save_annotation(self) -> None:
-        """Save annotation to labelme JSON format."""
+    def _on_save_annotation_clicked(self) -> None:
+        """Handle save annotation button click, respecting auto-save checkbox."""
+        auto_save = self.autoSaveCheckbox.isChecked()
+        self._save_annotation(auto_save=auto_save)
+    
+    def _save_annotation(self, auto_save: bool = False) -> None:
+        """Save annotation to labelme JSON format.
+        
+        Args:
+            auto_save: If True, save directly to current image location without dialog.
+                      If False, show file dialog (default behavior).
+        """
         if not self.canvas.shapes:
-            QMessageBox.information(
-                self,
-                self.tr("No Shapes"),
-                self.tr("There are no shapes to save."),
-            )
-            return
-
-        # Get annotations output directory (creates <video_name>/annotations/)
-        annotations_dir = self._get_video_output_dir("annotations")
-        if not annotations_dir:
+            if not auto_save:
+                QMessageBox.information(
+                    self,
+                    self.tr("No Shapes"),
+                    self.tr("There are no shapes to save."),
+                )
             return
 
         # Determine output filename
-        if self.filename:
-            base_name = osp.splitext(osp.basename(self.filename))[0]
-            # Include current image name if in WST mode
+        if auto_save:
+            # Auto-save mode: save to current image location
             if self._wst_current_image:
+                # WST mode: save to same directory as current image
+                image_dir = osp.dirname(self._wst_current_image)
                 img_name = osp.splitext(osp.basename(self._wst_current_image))[0]
-                default_name = f"{img_name}.json"
+                filename = osp.join(image_dir, f"{img_name}.json")
+                image_filename = self._wst_current_image  # Use existing image
+            elif self.filename:
+                # Video mode: save to video directory
+                video_dir = osp.dirname(self.filename)
+                base_name = osp.splitext(osp.basename(self.filename))[0]
+                filename = osp.join(video_dir, f"{base_name}_frame{self._current_frame}.json")
+                image_filename = osp.join(video_dir, f"{base_name}_frame{self._current_frame}.png")
             else:
-                default_name = f"{base_name}_frame{self._current_frame}.json"
+                logger.warning("Cannot auto-save: no current image or video")
+                return
         else:
-            default_name = "annotation.json"
+            # Manual save mode: show file dialog
+            # Get annotations output directory (creates <video_name>/annotations/)
+            annotations_dir = self._get_video_output_dir("annotations")
+            if not annotations_dir:
+                return
 
-        default_path = osp.join(annotations_dir, default_name)
+            # Determine default filename
+            if self.filename:
+                base_name = osp.splitext(osp.basename(self.filename))[0]
+                # Include current image name if in WST mode
+                if self._wst_current_image:
+                    img_name = osp.splitext(osp.basename(self._wst_current_image))[0]
+                    default_name = f"{img_name}.json"
+                else:
+                    default_name = f"{base_name}_frame{self._current_frame}.json"
+            else:
+                default_name = "annotation.json"
 
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            self.tr("Save Annotation"),
-            default_path,
-            self.tr("JSON files (*.json)"),
-        )
+            default_path = osp.join(annotations_dir, default_name)
 
-        if not filename:
-            return
+            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                self.tr("Save Annotation"),
+                default_path,
+                self.tr("JSON files (*.json)"),
+            )
 
-        # Also save the image
-        image_filename = osp.splitext(filename)[0] + ".png"
+            if not filename:
+                return
+
+            # Also save the image
+            image_filename = osp.splitext(filename)[0] + ".png"
 
         try:
             # Prepare shapes data
@@ -4780,6 +5175,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     "flags": shape.flags or {},
                     "group_id": shape.group_id,
                     "description": shape.description or "",
+                    "category_id": getattr(shape, "category_id", 0),
+                    "instance_id": getattr(shape, "instance_id", 0),
                 }
                 if shape.mask is not None:
                     # Encode mask as base64 PNG
@@ -4814,24 +5211,37 @@ class MainWindow(QtWidgets.QMainWindow):
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(label_data, f, ensure_ascii=False, indent=2)
 
-            # Save image
-            if self._image_data:
-                with open(image_filename, "wb") as f:
-                    f.write(self._image_data)
+            # Save image (skip if auto-save and image already exists)
+            if auto_save and self._wst_current_image and osp.exists(self._wst_current_image):
+                # In auto-save WST mode, don't overwrite the existing image
+                pass
+            else:
+                # Save image
+                if self._image_data:
+                    with open(image_filename, "wb") as f:
+                        f.write(self._image_data)
 
             self._is_changed = False
-            self.statusBar().showMessage(
-                self.tr("Saved annotation to %s") % filename, 5000
-            )
-            logger.info("Saved annotation to {} and image to {}", filename, image_filename)
+            
+            if auto_save:
+                self.statusBar().showMessage(
+                    self.tr("Auto-saved annotation to %s") % filename, 3000
+                )
+                logger.info("Auto-saved annotation to {}", filename)
+            else:
+                self.statusBar().showMessage(
+                    self.tr("Saved annotation to %s") % filename, 5000
+                )
+                logger.info("Saved annotation to {} and image to {}", filename, image_filename)
 
         except Exception as e:
             logger.error("Failed to save annotation: {}", e)
-            QMessageBox.critical(
-                self,
-                self.tr("Error"),
-                self.tr("Failed to save annotation: %s") % str(e),
-            )
+            if not auto_save:
+                QMessageBox.critical(
+                    self,
+                    self.tr("Error"),
+                    self.tr("Failed to save annotation: %s") % str(e),
+                )
 
 
 def _new_action(

@@ -13,7 +13,12 @@ from loguru import logger
 
 
 def _find_executable(name: str) -> str | None:
-    """Find executable in system PATH.
+    """Find executable in system PATH or bundled with app.
+    
+    Priority:
+    1. Bundled executable (from PyInstaller package)
+    2. System PATH (shutil.which)
+    3. Common installation paths
     
     Args:
         name: Name of executable (e.g., 'ffmpeg', 'ffprobe')
@@ -21,12 +26,36 @@ def _find_executable(name: str) -> str | None:
     Returns:
         Full path to executable or None if not found
     """
-    # First try shutil.which
+    import sys
+    import platform
+    from pathlib import Path
+    
+    # 1. First try bundled executable (PyInstaller)
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller bundle
+        bundle_dir = Path(sys._MEIPASS)
+        
+        # Check for platform-specific binary name
+        arch = platform.machine()
+        bundled_exec = bundle_dir / f"{name}-macos-{arch}"
+        
+        if bundled_exec.exists() and os.access(bundled_exec, os.X_OK):
+            logger.info(f"Using bundled {name}: {bundled_exec}")
+            return str(bundled_exec)
+        
+        # Also try without suffix
+        bundled_exec = bundle_dir / name
+        if bundled_exec.exists() and os.access(bundled_exec, os.X_OK):
+            logger.info(f"Using bundled {name}: {bundled_exec}")
+            return str(bundled_exec)
+    
+    # 2. Try system PATH
     path = shutil.which(name)
     if path:
+        logger.info(f"Using system {name}: {path}")
         return path
     
-    # Common installation paths
+    # 3. Common installation paths
     common_paths = [
         f"/usr/local/bin/{name}",
         f"/opt/homebrew/bin/{name}",  # Apple Silicon Homebrew
@@ -37,8 +66,10 @@ def _find_executable(name: str) -> str | None:
     
     for path in common_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
+            logger.info(f"Found {name} at: {path}")
             return path
     
+    logger.warning(f"{name} not found in bundled, system PATH, or common paths")
     return None
 
 # Available Whisper models

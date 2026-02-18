@@ -1,5 +1,15 @@
 [
   {
+    "category_id": 0,
+    "instance_id": 0,
+    "label_name": "left index fingertip"
+  },
+  {
+    "category_id": 0,
+    "instance_id": 1,
+    "label_name": "right index fingertip"
+  },
+  {
     "category_id": 28,
     "instance_id": 0,
     "label_name": "red suitcase"
