@@ -1,23 +1,21 @@
 #!/usr/bin/env python
 """
-直接运行脚本，用于测试开发。
-
-使用方法:
+Usage:
     python run.py
     python run.py /path/to/video.mp4
     python run.py /path/to/video/folder
 
-功能:
-    - Video Mode: 视频剪辑，标记片段，导出帧
-    - Image Mode: 图像标注 (polygon, bounding box, AI辅助)
-    - 导出 labelme 兼容的 JSON 格式
+Features:
+    - Video Mode: Video clipping, marking clips, exporting frames
+    - Image Mode: Image annotation (polygon, bounding box, AI assisted)
+    - Export labelme compatible JSON format
 
-快捷键:
-    - Ctrl+M: 切换 Video/Image 模式
-    - P: Polygon 绘制
-    - R: Rectangle 绘制
+Keyboard Shortcuts:
+    - Ctrl+M: Toggle Video/Image mode
+    - P: Polygon drawing
+    - R: Rectangle drawing
     - A: AI Polygon (SAM)
-    - E: 编辑模式
+    - E: Edit mode
 """
 import sys
 from pathlib import Path
