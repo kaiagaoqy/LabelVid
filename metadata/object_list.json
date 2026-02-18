@@ -1,0 +1,472 @@
+[
+  {
+    "category_id": 28,
+    "instance_id": 0,
+    "label_name": "red suitcase"
+  },
+  {
+    "category_id": 29,
+    "instance_id": 0,
+    "label_name": "blackbox"
+  },
+  {
+    "category_id": 30,
+    "instance_id": 0,
+    "label_name": "chair"
+  },
+  {
+    "category_id": 30,
+    "instance_id": 1,
+    "label_name": "chair"
+  },
+  {
+    "category_id": 31,
+    "instance_id": 0,
+    "label_name": "clock"
+  },
+  {
+    "category_id": 32,
+    "instance_id": 0,
+    "label_name": "door"
+  },
+  {
+    "category_id": 33,
+    "instance_id": 0,
+    "label_name": "hanging"
+  },
+  {
+    "category_id": 34,
+    "instance_id": 0,
+    "label_name": "headset"
+  },
+  {
+    "category_id": 35,
+    "instance_id": 0,
+    "label_name": "desktop"
+  },
+  {
+    "category_id": 36,
+    "instance_id": 0,
+    "label_name": "computer monitor"
+  },
+  {
+    "category_id": 37,
+    "instance_id": 0,
+    "label_name": "pot"
+  },
+  {
+    "category_id": 38,
+    "instance_id": 0,
+    "label_name": "power cable"
+  },
+  {
+    "category_id": 39,
+    "instance_id": 0,
+    "label_name": "sidetable"
+  },
+  {
+    "category_id": 40,
+    "instance_id": 0,
+    "label_name": "sofa"
+  },
+  {
+    "category_id": 41,
+    "instance_id": 0,
+    "label_name": "table"
+  },
+  {
+    "category_id": 42,
+    "instance_id": 0,
+    "label_name": "tea tin"
+  },
+  {
+    "category_id": 43,
+    "instance_id": 0,
+    "label_name": "trash bin"
+  },
+  {
+    "category_id": 44,
+    "instance_id": 0,
+    "label_name": "yogamat"
+  },
+  {
+    "category_id": 45,
+    "instance_id": 0,
+    "label_name": "backpack"
+  },
+  {
+    "category_id": 46,
+    "instance_id": 0,
+    "label_name": "bench"
+  },
+  {
+    "category_id": 47,
+    "instance_id": 0,
+    "label_name": "bookshelf"
+  },
+  {
+    "category_id": 48,
+    "instance_id": 0,
+    "label_name": "lamp"
+  },
+  {
+    "category_id": 49,
+    "instance_id": 0,
+    "label_name": "laundry basket"
+  },
+  {
+    "category_id": 50,
+    "instance_id": 0,
+    "label_name": "ornament"
+  },
+  {
+    "category_id": 51,
+    "instance_id": 0,
+    "label_name": "panda"
+  },
+  {
+    "category_id": 52,
+    "instance_id": 0,
+    "label_name": "pear"
+  },
+  {
+    "category_id": 53,
+    "instance_id": 0,
+    "label_name": "pillow"
+  },
+  {
+    "category_id": 54,
+    "instance_id": 0,
+    "label_name": "plant"
+  },
+  {
+    "category_id": 55,
+    "instance_id": 0,
+    "label_name": "rug"
+  },
+  {
+    "category_id": 56,
+    "instance_id": 0,
+    "label_name": "shoes"
+  },
+  {
+    "category_id": 57,
+    "instance_id": 0,
+    "label_name": "umbrella"
+  },
+  {
+    "category_id": 58,
+    "instance_id": 0,
+    "label_name": "wagon"
+  },
+  {
+    "category_id": 59,
+    "instance_id": 0,
+    "label_name": "dustpan"
+  },
+  {
+    "category_id": 60,
+    "instance_id": 0,
+    "label_name": "torch"
+  },
+  {
+    "category_id": 61,
+    "instance_id": 0,
+    "label_name": "plastic bottle"
+  },
+  {
+    "category_id": 62,
+    "instance_id": 0,
+    "label_name": "lid"
+  },
+  {
+    "category_id": 62,
+    "instance_id": 1,
+    "label_name": "lid"
+  },
+  {
+    "category_id": 63,
+    "instance_id": 0,
+    "label_name": "work bench"
+  },
+  {
+    "category_id": 64,
+    "instance_id": 0,
+    "label_name": "broom"
+  },
+  {
+    "category_id": 65,
+    "instance_id": 0,
+    "label_name": "storage bin"
+  },
+  {
+    "category_id": 66,
+    "instance_id": 0,
+    "label_name": "bin"
+  },
+  {
+    "category_id": 67,
+    "instance_id": 0,
+    "label_name": "white cane"
+  },
+  {
+    "category_id": 68,
+    "instance_id": 0,
+    "label_name": "stool"
+  },
+  {
+    "category_id": 69,
+    "instance_id": 0,
+    "label_name": "ladder"
+  },
+  {
+    "category_id": 70,
+    "instance_id": 0,
+    "label_name": "desk lamp"
+  },
+  {
+    "category_id": 71,
+    "instance_id": 0,
+    "label_name": "speaker"
+  },
+  {
+    "category_id": 71,
+    "instance_id": 1,
+    "label_name": "speaker"
+  },
+  {
+    "category_id": 72,
+    "instance_id": 0,
+    "label_name": "speaker stand"
+  },
+  {
+    "category_id": 72,
+    "instance_id": 1,
+    "label_name": "speaker stand"
+  },
+  {
+    "category_id": 73,
+    "instance_id": 0,
+    "label_name": "basket"
+  },
+  {
+    "category_id": 74,
+    "instance_id": 0,
+    "label_name": "robotic vacuum"
+  },
+  {
+    "category_id": 75,
+    "instance_id": 0,
+    "label_name": "cat feeder"
+  },
+  {
+    "category_id": 76,
+    "instance_id": 0,
+    "label_name": "walker"
+  },
+  {
+    "category_id": 77,
+    "instance_id": 0,
+    "label_name": "tissue box"
+  },
+  {
+    "category_id": 78,
+    "instance_id": 0,
+    "label_name": "floor lamp"
+  },
+  {
+    "category_id": 79,
+    "instance_id": 0,
+    "label_name": "circle_both"
+  },
+  {
+    "category_id": 79,
+    "instance_id": 1,
+    "label_name": "circle_both"
+  },
+  {
+    "category_id": 79,
+    "instance_id": 2,
+    "label_name": "circle_both"
+  },
+  {
+    "category_id": 79,
+    "instance_id": 3,
+    "label_name": "circle_both"
+  },
+  {
+    "category_id": 80,
+    "instance_id": 0,
+    "label_name": "circle_left"
+  },
+  {
+    "category_id": 80,
+    "instance_id": 1,
+    "label_name": "circle_left"
+  },
+  {
+    "category_id": 80,
+    "instance_id": 2,
+    "label_name": "circle_left"
+  },
+  {
+    "category_id": 80,
+    "instance_id": 3,
+    "label_name": "circle_left"
+  },
+  {
+    "category_id": 81,
+    "instance_id": 0,
+    "label_name": "circle_right"
+  },
+  {
+    "category_id": 81,
+    "instance_id": 1,
+    "label_name": "circle_right"
+  },
+  {
+    "category_id": 81,
+    "instance_id": 2,
+    "label_name": "circle_right"
+  },
+  {
+    "category_id": 81,
+    "instance_id": 3,
+    "label_name": "circle_right"
+  },
+  {
+    "category_id": 82,
+    "instance_id": 0,
+    "label_name": "square_both"
+  },
+  {
+    "category_id": 82,
+    "instance_id": 1,
+    "label_name": "square_both"
+  },
+  {
+    "category_id": 82,
+    "instance_id": 2,
+    "label_name": "square_both"
+  },
+  {
+    "category_id": 82,
+    "instance_id": 3,
+    "label_name": "square_both"
+  },
+  {
+    "category_id": 83,
+    "instance_id": 0,
+    "label_name": "square_left"
+  },
+  {
+    "category_id": 83,
+    "instance_id": 1,
+    "label_name": "square_left"
+  },
+  {
+    "category_id": 83,
+    "instance_id": 2,
+    "label_name": "square_left"
+  },
+  {
+    "category_id": 83,
+    "instance_id": 3,
+    "label_name": "square_left"
+  },
+  {
+    "category_id": 84,
+    "instance_id": 0,
+    "label_name": "square_right"
+  },
+  {
+    "category_id": 84,
+    "instance_id": 1,
+    "label_name": "square_right"
+  },
+  {
+    "category_id": 84,
+    "instance_id": 2,
+    "label_name": "square_right"
+  },
+  {
+    "category_id": 84,
+    "instance_id": 3,
+    "label_name": "square_right"
+  },
+  {
+    "category_id": 85,
+    "instance_id": 0,
+    "label_name": "triangle_both"
+  },
+  {
+    "category_id": 85,
+    "instance_id": 1,
+    "label_name": "triangle_both"
+  },
+  {
+    "category_id": 85,
+    "instance_id": 2,
+    "label_name": "triangle_both"
+  },
+  {
+    "category_id": 85,
+    "instance_id": 3,
+    "label_name": "triangle_both"
+  },
+  {
+    "category_id": 86,
+    "instance_id": 0,
+    "label_name": "triangle_left"
+  },
+  {
+    "category_id": 86,
+    "instance_id": 1,
+    "label_name": "triangle_left"
+  },
+  {
+    "category_id": 86,
+    "instance_id": 2,
+    "label_name": "triangle_left"
+  },
+  {
+    "category_id": 86,
+    "instance_id": 3,
+    "label_name": "triangle_left"
+  },
+  {
+    "category_id": 87,
+    "instance_id": 0,
+    "label_name": "triangle_right"
+  },
+  {
+    "category_id": 87,
+    "instance_id": 1,
+    "label_name": "triangle_right"
+  },
+  {
+    "category_id": 87,
+    "instance_id": 2,
+    "label_name": "triangle_right"
+  },
+  {
+    "category_id": 87,
+    "instance_id": 3,
+    "label_name": "triangle_right"
+  },
+  {
+    "category_id": 88,
+    "instance_id": 0,
+    "label_name": "white box"
+  },
+  {
+    "category_id": 89,
+    "instance_id": 0,
+    "label_name": "paint"
+  },
+  {
+    "category_id": 90,
+    "instance_id": 0,
+    "label_name": "remote"
+  }
+]

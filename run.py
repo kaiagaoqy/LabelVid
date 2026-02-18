@@ -22,7 +22,6 @@
 import sys
 from pathlib import Path
 
-# 添加 labelvid 到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from labelvid.__main__ import main

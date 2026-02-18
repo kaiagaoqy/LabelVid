@@ -29,24 +29,69 @@ class ClipListWidgetItem(QtWidgets.QListWidgetItem):
         r, g, b = self._clip.color
         duration = self._clip.end_frame - self._clip.start_frame
 
-        # Set text with clip info
-        text = (
-            f"{self._clip.label}\n"
-            f"  Frames: {self._clip.start_frame} → {self._clip.end_frame}\n"
-            f"  Duration: {duration} frames"
-        )
-        self.setText(text)
+        # Build display text
+        text_lines = [f"{self._clip.label}"]
+        text_lines.append(f"  Frames: {self._clip.start_frame} → {self._clip.end_frame} ({duration})")
+        
+        # Add category and instance IDs if not default
+        if self._clip.category_id != 0 or self._clip.instance_id != 0:
+            text_lines.append(f"  Cat: {self._clip.category_id} | Inst: {self._clip.instance_id}")
+        
+        # Add scores if present
+        if self._clip.detection_score is not None or self._clip.recognition_score is not None:
+            det_str = f"{self._clip.detection_score:.1f}" if self._clip.detection_score is not None else "—"
+            rec_str = f"{self._clip.recognition_score:.1f}" if self._clip.recognition_score is not None else "—"
+            text_lines.append(f"  Det: {det_str} | Rec: {rec_str}")
+        
+        # Add hazard indicator
+        if self._clip.is_hazard is not None:
+            hazard_icon = "Hazard" if self._clip.is_hazard else "No Hazard"
+            text_lines.append(f"  {hazard_icon}")
+        
+        # Add recognition if present
+        if self._clip.recognition:
+            text_lines.append(f"  Recognition: {self._clip.recognition}")
+        
+        # Add scene if present
+        if self._clip.scene:
+            text_lines.append(f"  Scene: {self._clip.scene}")
+        
+        # Add description preview if present
+        if self._clip.description:
+            desc_preview = self._clip.description[:40] + "..." if len(self._clip.description) > 40 else self._clip.description
+            text_lines.append(f"  {desc_preview}")
+        
+        self.setText("\n".join(text_lines))
 
         # Set color indicator
         self.setForeground(QtGui.QColor(r, g, b))
 
-        # Set tooltip
-        self.setToolTip(
-            f"Label: {self._clip.label}\n"
-            f"Start: {self._clip.start_frame}\n"
-            f"End: {self._clip.end_frame}\n"
-            f"Duration: {duration} frames"
-        )
+        # Build tooltip
+        tooltip_lines = [
+            f"Label: {self._clip.label}",
+            f"Start: {self._clip.start_frame}",
+            f"End: {self._clip.end_frame}",
+            f"Duration: {duration} frames",
+        ]
+        
+        # Add IDs
+        tooltip_lines.append(f"Category ID: {self._clip.category_id}")
+        tooltip_lines.append(f"Instance ID: {self._clip.instance_id}")
+        
+        if self._clip.detection_score is not None:
+            tooltip_lines.append(f"Detection Score: {self._clip.detection_score:.2f}")
+        if self._clip.recognition_score is not None:
+            tooltip_lines.append(f"Recognition Score: {self._clip.recognition_score:.2f}")
+        if self._clip.is_hazard is not None:
+            tooltip_lines.append(f"Hazard: {'Yes' if self._clip.is_hazard else 'No'}")
+        if self._clip.recognition:
+            tooltip_lines.append(f"Recognition: {self._clip.recognition}")
+        if self._clip.scene:
+            tooltip_lines.append(f"Scene: {self._clip.scene}")
+        if self._clip.description:
+            tooltip_lines.append(f"Description: {self._clip.description}")
+        
+        self.setToolTip("\n".join(tooltip_lines))
 
 
 class ClipListWidget(QtWidgets.QListWidget):

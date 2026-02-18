@@ -4,7 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "labelvid"
+version = "0.1.0"
 description = "Video Clipping Tool for Frame Extraction - Works with Labelme"
+readme = "README.md"
 license = { text = "GPL-3.0-only" }
 requires-python = ">=3.10"
 authors = [{ name = "LabelVid Team" }]
@@ -42,11 +44,14 @@ whisper = [
   "openai-whisper>=20231117",  # For speech recognition and caption extraction
   "ffmpeg-python>=0.2.0",  # For audio extraction
 ]
-all = [
-  "labelvid[ai,whisper]",
+llm = [
+  "openai",  # For GPT models
+  "google-generativeai",  # For Gemini models
+  "anthropic",  # For Claude models
 ]
-version = "0.1.0"
-readme = "README.md"
+all = [
+  "labelvid[ai,whisper,llm]",
+]
 
 [dependency-groups]
 dev = [

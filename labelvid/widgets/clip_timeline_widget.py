@@ -58,6 +58,12 @@ class ClipTimelineWidget(QtWidgets.QWidget):
         self._hover_clip_index: int = -1
         self._hover_is_start: bool = True
         
+        # Search results (frame numbers where keywords found)
+        self._search_results: list[int] = []
+        
+        # Pending clip start frame (before marking end)
+        self._pending_start_frame: int | None = None
+        
         # Appearance
         self._marker_width: int = 6
         self._bar_height: int = 20
@@ -83,6 +89,24 @@ class ClipTimelineWidget(QtWidgets.QWidget):
     def setCurrentFrame(self, frame: int) -> None:
         """Set current frame position."""
         self._current_frame = frame
+        self.update()
+
+    def setSearchResults(self, frames: list[int]) -> None:
+        """Set search result frames to highlight.
+        
+        Args:
+            frames: List of frame numbers where keywords were found
+        """
+        self._search_results = frames
+        self.update()
+
+    def setPendingStartFrame(self, frame: int | None) -> None:
+        """Set pending clip start frame to display.
+        
+        Args:
+            frame: Frame number where clip start was marked, or None to clear
+        """
+        self._pending_start_frame = frame
         self.update()
 
     def _frame_to_x(self, frame: int) -> int:
@@ -202,10 +226,76 @@ class ClipTimelineWidget(QtWidgets.QWidget):
                     clip.label[:10] + "..." if len(clip.label) > 10 else clip.label
                 )
         
-        # Draw current frame indicator
+        # Draw search result markers (before current frame indicator)
+        if self._search_results:
+            # Group consecutive frames to avoid drawing too many lines
+            search_ranges = self._group_consecutive_frames(self._search_results)
+            
+            for start_frame, end_frame in search_ranges:
+                start_x = self._frame_to_x(start_frame)
+                end_x = self._frame_to_x(end_frame)
+                
+                # Draw as a filled region if range is wide enough
+                if end_x - start_x > 2:
+                    # Cyan/blue highlight for search results
+                    search_color = QtGui.QColor(0, 255, 255, 100)  # Cyan, semi-transparent
+                    painter.fillRect(
+                        start_x, 0,
+                        end_x - start_x, self._bar_height + 4,
+                        search_color
+                    )
+                else:
+                    # Draw as a thin line for single frames
+                    painter.setPen(QtGui.QPen(QtGui.QColor(0, 255, 255), 2))
+                    painter.drawLine(start_x, 0, start_x, self._bar_height + 4)
+        
+        # Draw pending clip start marker (green dashed line)
+        if self._pending_start_frame is not None:
+            pending_x = self._frame_to_x(self._pending_start_frame)
+            pen = QtGui.QPen(QtGui.QColor(76, 175, 80), 3)  # Green
+            pen.setStyle(Qt.DashLine)
+            painter.setPen(pen)
+            painter.drawLine(pending_x, 0, pending_x, self._bar_height + 4)
+            
+            # Draw small label
+            painter.setPen(QtGui.QColor(76, 175, 80))
+            font = painter.font()
+            font.setPointSize(7)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(pending_x + 2, 10, "START")
+        
+        # Draw current frame indicator (on top of everything)
         current_x = self._frame_to_x(self._current_frame)
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 0), 2))
         painter.drawLine(current_x, 0, current_x, self._bar_height + 4)
+
+    def _group_consecutive_frames(self, frames: list[int]) -> list[tuple[int, int]]:
+        """Group consecutive frames into ranges.
+        
+        Args:
+            frames: List of frame numbers
+            
+        Returns:
+            List of (start_frame, end_frame) tuples
+        """
+        if not frames:
+            return []
+        
+        ranges = []
+        start = frames[0]
+        prev = frames[0]
+        
+        for frame in frames[1:]:
+            if frame - prev > 1:
+                # Gap found, end current range
+                ranges.append((start, prev))
+                start = frame
+            prev = frame
+        
+        # Add last range
+        ranges.append((start, prev))
+        return ranges
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         """Handle mouse press - start dragging if on a marker."""

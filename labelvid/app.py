@@ -13,6 +13,7 @@ import types
 import time
 from dataclasses import dataclass
 from dataclasses import field
+from pathlib import Path
 
 import cv2
 import natsort
@@ -30,10 +31,15 @@ from labelvid import __version__
 from labelvid.label_file import LabelFile
 from labelvid.shape import Shape
 from labelvid.widgets import Canvas
+from labelvid.widgets import CaptionAnalysisWidget
+from labelvid.widgets import ClipDialog
 from labelvid.widgets import ClipListWidget
 from labelvid.widgets import ClipListWidgetItem
 from labelvid.widgets import ClipTimelineWidget
+from labelvid.widgets import get_object_list
 from labelvid.widgets import LabelDialog
+from labelvid.widgets import ObjectListDialog
+from labelvid.widgets import set_object_list
 from labelvid.widgets import VideoPlayerWidget
 
 # Try to import Whisper support
@@ -130,6 +136,14 @@ class VideoClip:
     start_frame: int
     end_frame: int
     color: tuple[int, int, int] = field(default_factory=lambda: (0, 255, 0))
+    detection_score: float | None = None  # Detection confidence (0-5)
+    recognition_score: float | None = None  # Recognition confidence (0-5)
+    is_hazard: bool | None = None  # Whether object is a hazard
+    description: str = ""  # Additional description
+    recognition: str = ""  # Recognition result (same as label for LLM)
+    scene: str = ""  # Scene description
+    category_id: int = 0  # Category ID from object list
+    instance_id: int = 0  # Instance ID from object list
 
     def __post_init__(self) -> None:
         if self.end_frame < self.start_frame:
@@ -177,6 +191,9 @@ class MainWindow(QtWidgets.QMainWindow):
     _whisper_transcriber: WhisperTranscriber | None = None  # Whisper transcriber
     _caption_segments: list = []  # Caption segments from Whisper
     _current_caption: str = ""  # Current caption text
+    _caption_search_results: list[int] = []  # Frame numbers where keywords found
+    _caption_search_keywords: list[str] = []  # Current search keywords
+    _llm_detections: list = []  # Object detections from LLM analysis
 
     # Preview quality options
     PREVIEW_SCALES = {
@@ -619,6 +636,58 @@ class MainWindow(QtWidgets.QMainWindow):
         audioLayout.addStretch()
         layout.addLayout(audioLayout)
 
+        # Caption search controls
+        searchLayout = QtWidgets.QHBoxLayout()
+        
+        searchLabel = QtWidgets.QLabel("Search in Captions:")
+        searchLayout.addWidget(searchLabel)
+        
+        self.captionSearchInput = QtWidgets.QLineEdit()
+        self.captionSearchInput.setPlaceholderText("Enter keywords (e.g., start, stop)")
+        self.captionSearchInput.setMaximumWidth(200)
+        self.captionSearchInput.textChanged.connect(self._on_caption_search_changed)
+        searchLayout.addWidget(self.captionSearchInput)
+        
+        self.searchCaptionsBtn = QtWidgets.QPushButton("🔍 Search")
+        self.searchCaptionsBtn.clicked.connect(self._search_captions)
+        self.searchCaptionsBtn.setEnabled(False)
+        self.searchCaptionsBtn.setToolTip("Search for keywords in captions")
+        searchLayout.addWidget(self.searchCaptionsBtn)
+        
+        self.clearSearchBtn = QtWidgets.QPushButton("✕ Clear")
+        self.clearSearchBtn.clicked.connect(self._clear_caption_search)
+        self.clearSearchBtn.setEnabled(False)
+        self.clearSearchBtn.setToolTip("Clear search results")
+        searchLayout.addWidget(self.clearSearchBtn)
+        
+        searchLayout.addSpacing(10)
+        
+        # Navigation buttons for search results
+        self.prevSearchBtn = QtWidgets.QPushButton("◀ Prev")
+        self.prevSearchBtn.clicked.connect(self._goto_prev_search_result)
+        self.prevSearchBtn.setEnabled(False)
+        self.prevSearchBtn.setToolTip("Go to previous search result (Shift+Up)")
+        searchLayout.addWidget(self.prevSearchBtn)
+        
+        self.nextSearchBtn = QtWidgets.QPushButton("Next ▶")
+        self.nextSearchBtn.clicked.connect(self._goto_next_search_result)
+        self.nextSearchBtn.setEnabled(False)
+        self.nextSearchBtn.setToolTip("Go to next search result (Shift+Down)")
+        searchLayout.addWidget(self.nextSearchBtn)
+        
+        self.searchResultLabel = QtWidgets.QLabel("")
+        self.searchResultLabel.setStyleSheet("color: #4CAF50;")
+        searchLayout.addWidget(self.searchResultLabel)
+        
+        searchLayout.addStretch()
+        layout.addLayout(searchLayout)
+
+        # LLM Caption Analysis widget
+        self.captionAnalysisWidget = CaptionAnalysisWidget()
+        self.captionAnalysisWidget.analysisRequested.connect(self._on_llm_analysis_requested)
+        self.captionAnalysisWidget.setEnabled(False)  # Disabled until captions loaded
+        layout.addWidget(self.captionAnalysisWidget)
+
         # Caption display area
         self.captionLabel = QtWidgets.QLabel("")
         self.captionLabel.setAlignment(Qt.AlignCenter)
@@ -928,6 +997,39 @@ class MainWindow(QtWidgets.QMainWindow):
             "Shift+Right",
             tip=self.tr("Jump forward"),
         )
+        
+        # Caption search navigation
+        prev_search = action(
+            self.tr("Previous Search Result"),
+            self._goto_prev_search_result,
+            "Shift+Up",
+            tip=self.tr("Go to previous caption search result"),
+        )
+        next_search = action(
+            self.tr("Next Search Result"),
+            self._goto_next_search_result,
+            "Shift+Down",
+            tip=self.tr("Go to next caption search result"),
+        )
+
+        # Object List action
+        manage_object_list = action(
+            self.tr("📋 Manage Object List"),
+            self._manage_object_list,
+            tip=self.tr("Import and manage object list for label selection"),
+        )
+        
+        # Batch Process actions
+        batch_caption_only = action(
+            self.tr("📝 Caption Extraction Only"),
+            lambda: self._batch_process(llm_analyze=False),
+            tip=self.tr("Batch extract captions for all loaded videos"),
+        )
+        batch_caption_and_llm = action(
+            self.tr("🤖 Caption + LLM Analysis"),
+            lambda: self._batch_process(llm_analyze=True),
+            tip=self.tr("Batch extract captions and analyze with LLM for all loaded videos"),
+        )
 
         # Mode toggle action
         toggle_mode = action(
@@ -1003,6 +1105,11 @@ class MainWindow(QtWidgets.QMainWindow):
             delete_clip=delete_clip,
             jump_back=jump_back,
             jump_fwd=jump_fwd,
+            prev_search=prev_search,
+            next_search=next_search,
+            manage_object_list=manage_object_list,
+            batch_caption_only=batch_caption_only,
+            batch_caption_and_llm=batch_caption_and_llm,
             toggle_mode=toggle_mode,
             create_polygon=create_polygon,
             create_rectangle=create_rectangle,
@@ -1034,6 +1141,7 @@ class MainWindow(QtWidgets.QMainWindow):
             file=self.menuBar().addMenu(self.tr("&File")),
             edit=self.menuBar().addMenu(self.tr("&Edit")),
             view=self.menuBar().addMenu(self.tr("&View")),
+            batch=self.menuBar().addMenu(self.tr("&Batch Process")),
             mode=self.menuBar().addMenu(self.tr("&Mode")),
             annotation=self.menuBar().addMenu(self.tr("&Annotation")),
             help=self.menuBar().addMenu(self.tr("&Help")),
@@ -1045,6 +1153,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menus.file.addSeparator()
         self.menus.file.addAction(self.actions.prev_video)
         self.menus.file.addAction(self.actions.next_video)
+        self.menus.file.addSeparator()
+        self.menus.file.addAction(self.actions.manage_object_list)
         self.menus.file.addSeparator()
         self.menus.file.addAction(self.actions.save_clips)
         self.menus.file.addAction(self.actions.load_clips)
@@ -1069,6 +1179,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menus.view.addAction(self.shape_dock.toggleViewAction())
         self.menus.view.addAction(self.controls_dock.toggleViewAction())
         self.menus.view.addAction(self.annotation_dock.toggleViewAction())
+
+        # Batch Process menu
+        self.menus.batch.addAction(self.actions.batch_caption_only)
+        self.menus.batch.addAction(self.actions.batch_caption_and_llm)
 
         # Mode menu
         self.menus.mode.addAction(self.actions.toggle_mode)
@@ -1098,6 +1212,13 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.actions.next_video)
         toolbar.addSeparator()
         toolbar.addAction(self.actions.extract)
+        toolbar.addSeparator()
+
+        # Batch Process button
+        self.batchProcessBtn = QtWidgets.QPushButton("⚡ Batch Process")
+        self.batchProcessBtn.setToolTip("Batch process multiple videos (Caption + LLM)")
+        self.batchProcessBtn.clicked.connect(self._show_batch_process_dialog)
+        toolbar.addWidget(self.batchProcessBtn)
         toolbar.addSeparator()
 
         # Mode toggle button
@@ -1408,6 +1529,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     3000,
                 )
                 self.exportCaptionsBtn.setEnabled(True)
+                # Enable search if we have text in search box
+                if self.captionSearchInput.text().strip():
+                    self.searchCaptionsBtn.setEnabled(True)
+                # Enable LLM analysis widget
+                self.captionAnalysisWidget.setEnabled(True)
                 # Auto-show captions when loaded from file
                 self.captionLabel.show()
                 self._update_caption_display()
@@ -2187,6 +2313,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # Show caption display
             self.captionLabel.show()
             self.exportCaptionsBtn.setEnabled(True)
+            # Enable search if we have text in search box
+            if self.captionSearchInput.text().strip():
+                self.searchCaptionsBtn.setEnabled(True)
+            # Enable LLM analysis widget
+            self.captionAnalysisWidget.setEnabled(True)
             self._update_caption_display()
 
             QMessageBox.information(
@@ -2274,6 +2405,184 @@ class MainWindow(QtWidgets.QMainWindow):
                 self,
                 self.tr("Export Failed"),
                 self.tr("Failed to export captions:\n%s") % str(e),
+            )
+
+    def _on_caption_search_changed(self, text: str) -> None:
+        """Handle caption search text change."""
+        # Enable search button if we have text and captions
+        has_text = bool(text.strip())
+        has_captions = bool(self._caption_segments)
+        self.searchCaptionsBtn.setEnabled(has_text and has_captions)
+
+    def _search_captions(self) -> None:
+        """Search for keywords in captions and highlight on timeline."""
+        if not self._caption_segments:
+            return
+        
+        keywords_text = self.captionSearchInput.text().strip()
+        if not keywords_text:
+            return
+        
+        # Split keywords by comma or space
+        keywords = [k.strip().lower() for k in keywords_text.replace(',', ' ').split() if k.strip()]
+        if not keywords:
+            return
+        
+        self._caption_search_keywords = keywords
+        self._caption_search_results = []
+        
+        # Search through all caption segments
+        for segment in self._caption_segments:
+            text_lower = segment.text.lower()
+            # Check if any keyword is in this segment
+            if any(keyword in text_lower for keyword in keywords):
+                # Calculate frame range for this segment
+                start_frame = int(segment.start * self._effective_fps)
+                end_frame = int(segment.end * self._effective_fps)
+                # Add all frames in this segment
+                for frame in range(start_frame, end_frame + 1):
+                    if frame not in self._caption_search_results:
+                        self._caption_search_results.append(frame)
+        
+        # Sort results
+        self._caption_search_results.sort()
+        
+        # Update UI
+        result_count = len(self._caption_search_results)
+        if result_count > 0:
+            self.searchResultLabel.setText(
+                f"1 / {result_count}"
+            )
+            self.clearSearchBtn.setEnabled(True)
+            self.prevSearchBtn.setEnabled(True)
+            self.nextSearchBtn.setEnabled(True)
+            
+            # Update clip timeline to show search results
+            self.clipTimeline.setSearchResults(self._caption_search_results)
+            
+            logger.info("Caption search: found {} frames with keywords: {}", 
+                       result_count, keywords)
+            
+            # Jump to first result
+            if self._caption_search_results:
+                first_frame = self._caption_search_results[0]
+                self._current_frame = first_frame
+                self._seek_to_frame(first_frame)
+                self.timelineSlider.setValue(first_frame)
+        else:
+            self.searchResultLabel.setText("No results found")
+            self.clearSearchBtn.setEnabled(False)
+            self.prevSearchBtn.setEnabled(False)
+            self.nextSearchBtn.setEnabled(False)
+            self.clipTimeline.setSearchResults([])
+
+    def _clear_caption_search(self) -> None:
+        """Clear caption search results."""
+        self._caption_search_results = []
+        self._caption_search_keywords = []
+        self.captionSearchInput.clear()
+        self.searchResultLabel.setText("")
+        self.clearSearchBtn.setEnabled(False)
+        self.prevSearchBtn.setEnabled(False)
+        self.nextSearchBtn.setEnabled(False)
+        
+        # Clear search results from timeline
+        self.clipTimeline.setSearchResults([])
+        
+        logger.info("Caption search cleared")
+
+    def _goto_prev_search_result(self) -> None:
+        """Go to previous search result."""
+        if not self._caption_search_results:
+            return
+        
+        # Find the previous result frame (before current frame)
+        prev_frames = [f for f in self._caption_search_results if f < self._current_frame]
+        
+        if prev_frames:
+            # Go to the last one before current
+            target_frame = prev_frames[-1]
+        else:
+            # Wrap around to last result
+            target_frame = self._caption_search_results[-1]
+        
+        self._current_frame = target_frame
+        self._seek_to_frame(target_frame)
+        self.timelineSlider.setValue(target_frame)
+        
+        # Update result label to show position
+        current_index = self._caption_search_results.index(target_frame) + 1
+        self.searchResultLabel.setText(
+            f"{current_index} / {len(self._caption_search_results)}"
+        )
+
+    def _goto_next_search_result(self) -> None:
+        """Go to next search result."""
+        if not self._caption_search_results:
+            return
+        
+        # Find the next result frame (after current frame)
+        next_frames = [f for f in self._caption_search_results if f > self._current_frame]
+        
+        if next_frames:
+            # Go to the first one after current
+            target_frame = next_frames[0]
+        else:
+            # Wrap around to first result
+            target_frame = self._caption_search_results[0]
+        
+        self._current_frame = target_frame
+        self._seek_to_frame(target_frame)
+        self.timelineSlider.setValue(target_frame)
+        
+        # Update result label to show position
+        current_index = self._caption_search_results.index(target_frame) + 1
+        self.searchResultLabel.setText(
+            f"{current_index} / {len(self._caption_search_results)}"
+        )
+
+    def _export_llm_detections(self) -> None:
+        """Export LLM detection results to JSON."""
+        if not self._llm_detections:
+            return
+        
+        # Get output directory
+        detections_dir = self._get_video_output_dir("detections")
+        if not detections_dir:
+            return
+        
+        # Default filename
+        video_name = osp.splitext(osp.basename(self.filename))[0] if self.filename else "video"
+        default_path = osp.join(detections_dir, f"{video_name}_detections.json")
+        
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            self.tr("Export Detections"),
+            default_path,
+            self.tr("JSON Files (*.json);;All Files (*)"),
+        )
+        
+        if not path:
+            return
+        
+        try:
+            from labelvid.agent import CaptionAnalyzer
+            
+            # Create a temporary analyzer just for export
+            analyzer = CaptionAnalyzer()
+            analyzer.export_to_json(self._llm_detections, path)
+            
+            QMessageBox.information(
+                self,
+                self.tr("Export Complete"),
+                self.tr("Detections exported to:\n%s") % path,
+            )
+        except Exception as e:
+            logger.error("Failed to export detections: {}", e)
+            QMessageBox.critical(
+                self,
+                self.tr("Export Failed"),
+                self.tr("Failed to export detections:\n%s") % str(e),
             )
 
     def _scale_frame_for_preview(self, frame):
@@ -2406,6 +2715,10 @@ class MainWindow(QtWidgets.QMainWindow):
             f"📍 Clip start marked at frame {self._pending_start_frame}"
         )
         self.markEndBtn.setEnabled(True)
+        
+        # Show pending start marker on timeline
+        self.clipTimeline.setPendingStartFrame(self._pending_start_frame)
+        
         logger.info("Marked clip start at frame {}", self._pending_start_frame)
 
     def _mark_end(self) -> None:
@@ -2415,40 +2728,55 @@ class MainWindow(QtWidgets.QMainWindow):
 
         end_frame = self._current_frame
 
-        # Prompt for label
-        label, ok = QtWidgets.QInputDialog.getText(
-            self,
-            self.tr("Clip Label"),
-            self.tr("Enter a label for this clip:"),
-            QtWidgets.QLineEdit.Normal,
-            f"clip_{len(self._clips) + 1}",
+        # Show dialog to get clip information
+        dialog = ClipDialog(
+            parent=self,
+            label=f"clip_{len(self._clips) + 1}",
+            title=self.tr("Create Clip"),
         )
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            label, det_score, rec_score, is_hazard, description, recognition, scene, category_id, instance_id = dialog.get_values()
+            
+            if label:
+                clip = VideoClip(
+                    label=label,
+                    start_frame=self._pending_start_frame,
+                    end_frame=end_frame,
+                    color=_get_color_for_index(len(self._clips)),
+                    detection_score=det_score,
+                    recognition_score=rec_score,
+                    is_hazard=is_hazard,
+                    description=description,
+                    recognition=recognition,
+                    scene=scene,
+                    category_id=category_id,
+                    instance_id=instance_id,
+                )
+                self._clips.append(clip)
+                self._update_clip_list()
+                self._is_changed = True
 
-        if ok and label:
-            clip = VideoClip(
-                label=label,
-                start_frame=self._pending_start_frame,
-                end_frame=end_frame,
-                color=_get_color_for_index(len(self._clips)),
-            )
-            self._clips.append(clip)
-            self._update_clip_list()
-            self._is_changed = True
+                logger.info(
+                    "Created clip '{}': frames {} - {} (det:{}, rec:{}, hazard:{})",
+                    label,
+                    clip.start_frame,
+                    clip.end_frame,
+                    det_score,
+                    rec_score,
+                    is_hazard,
+                )
 
-            logger.info(
-                "Created clip '{}': frames {} - {}",
-                label,
-                clip.start_frame,
-                clip.end_frame,
-            )
-
-            # Auto-save
-            self._auto_save_clips()
+                # Auto-save
+                self._auto_save_clips()
 
         # Reset pending state
         self._pending_start_frame = None
         self.pendingLabel.setText("")
         self.markEndBtn.setEnabled(False)
+        
+        # Clear pending marker from timeline
+        self.clipTimeline.setPendingStartFrame(None)
 
     def _update_clip_list(self) -> None:
         """Update the clip list widget and timeline."""
@@ -2459,6 +2787,548 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Also update clip timeline
         self.clipTimeline.setClips(self._clips)
+
+    def _clip_selection_changed(self) -> None:
+        """Handle clip selection change."""
+        pass  # Can be used for future features
+    
+    def _clip_double_clicked(self, item) -> None:
+        """Handle double-click on clip - edit it."""
+        if isinstance(item, ClipListWidgetItem):
+            self._edit_clip(item.clip)
+    
+    def _delete_selected_clip(self) -> None:
+        """Delete selected clips (triggered by Delete key)."""
+        selected_items = self.clipListWidget.selectedItems()
+        if not selected_items:
+            return
+        
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            self.tr("Delete Clips"),
+            self.tr("Delete %d selected clip(s)?") % len(selected_items),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        
+        if reply == QMessageBox.Yes:
+            for item in selected_items:
+                if isinstance(item, ClipListWidgetItem):
+                    self._delete_clip(item.clip)
+    
+    def _edit_clip(self, clip: VideoClip) -> None:
+        """Edit a clip's information."""
+        dialog = ClipDialog(
+            parent=self,
+            label=clip.label,
+            detection_score=clip.detection_score,
+            recognition_score=clip.recognition_score,
+            is_hazard=clip.is_hazard,
+            description=clip.description,
+            recognition=clip.recognition,
+            scene=clip.scene,
+            category_id=clip.category_id,
+            instance_id=clip.instance_id,
+            title=self.tr("Edit Clip"),
+        )
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            label, det_score, rec_score, is_hazard, description, recognition, scene, category_id, instance_id = dialog.get_values()
+            
+            if label:
+                clip.label = label
+                clip.detection_score = det_score
+                clip.recognition_score = rec_score
+                clip.is_hazard = is_hazard
+                clip.description = description
+                clip.recognition = recognition
+                clip.scene = scene
+                clip.category_id = category_id
+                clip.instance_id = instance_id
+                
+                self._update_clip_list()
+                self._is_changed = True
+                self._auto_save_clips()
+                
+                logger.info("Updated clip '{}' (cat:{}, inst:{}, det:{}, rec:{}, hazard:{})", 
+                          label, category_id, instance_id, det_score, rec_score, is_hazard)
+    
+    def _delete_clip(self, clip: VideoClip) -> None:
+        """Delete a clip."""
+        if clip in self._clips:
+            self._clips.remove(clip)
+            self._update_clip_list()
+            self._is_changed = True
+            self._auto_save_clips()
+            logger.info("Deleted clip '{}'", clip.label)
+    
+    def _fill_clips_from_llm_detections(self, detections: list) -> None:
+        """Fill or update clips from LLM detection results.
+        
+        Args:
+            detections: List of ObjectDetection from LLM analysis
+        """
+        if not detections or not self._video_capture:
+            return
+        
+        # Get FPS for time to frame conversion
+        fps = self._effective_fps if hasattr(self, '_effective_fps') and self._effective_fps else 30.0
+        
+        updated_count = 0
+        created_count = 0
+        
+        for det in detections:
+            # Convert timestamps to frames
+            start_frame = int(det.timestamp_start * fps)
+            end_frame = int(det.timestamp_end * fps)
+            
+            # Clamp to valid frame range
+            start_frame = max(0, min(start_frame, self._total_frames - 1))
+            end_frame = max(0, min(end_frame, self._total_frames - 1))
+            
+            # Check if there's an existing clip that overlaps with this detection
+            existing_clip = None
+            for clip in self._clips:
+                # Check for overlap
+                if not (end_frame < clip.start_frame or start_frame > clip.end_frame):
+                    existing_clip = clip
+                    break
+            
+            if existing_clip:
+                # Update existing clip with LLM data
+                existing_clip.label = det.object_name
+                existing_clip.detection_score = det.detection_score
+                existing_clip.recognition_score = det.recognition_score
+                existing_clip.is_hazard = det.is_hazard
+                existing_clip.description = det.description
+                existing_clip.recognition = det.object_name  # Same as label
+                existing_clip.scene = ""  # Leave empty
+                existing_clip.category_id = 0  # Default
+                existing_clip.instance_id = 0  # Default
+                updated_count += 1
+                logger.info("Updated clip '{}' with LLM data", det.object_name)
+            else:
+                # Create new clip
+                clip = VideoClip(
+                    label=det.object_name,
+                    start_frame=start_frame,
+                    end_frame=end_frame,
+                    color=_get_color_for_index(len(self._clips)),
+                    detection_score=det.detection_score,
+                    recognition_score=det.recognition_score,
+                    is_hazard=det.is_hazard,
+                    description=det.description,
+                    recognition=det.object_name,  # Same as label
+                    scene="",  # Leave empty
+                    category_id=0,  # Default
+                    instance_id=0,  # Default
+                )
+                self._clips.append(clip)
+                created_count += 1
+                logger.info("Created clip '{}' from LLM detection", det.object_name)
+        
+        # Update UI
+        self._update_clip_list()
+        self._is_changed = True
+        self._auto_save_clips()
+        
+        # Show summary
+        QMessageBox.information(
+            self,
+            self.tr("Clips Updated"),
+            self.tr(
+                "LLM analysis complete!\n\n"
+                "Created: %d new clips\n"
+                "Updated: %d existing clips"
+            ) % (created_count, updated_count),
+        )
+    
+    def _manage_object_list(self) -> None:
+        """Show dialog to manage object list."""
+        dialog = ObjectListDialog(self)
+        
+        # Load current object list
+        current_objects = get_object_list()
+        if current_objects:
+            dialog.set_objects(current_objects)
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # Save the new object list
+            objects = dialog.get_objects()
+            set_object_list(objects)
+            
+            # Show confirmation
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Object List Updated"),
+                self.tr(f"Object list updated with {len(objects)} objects.\n"
+                       "Labels will now be available as dropdown in clip dialogs."),
+            )
+            
+            logger.info("Object list updated with {} objects", len(objects))
+    
+    def _on_llm_analysis_requested(self, provider: str, model: str, api_key: str | None) -> None:
+        """Handle LLM caption analysis request."""
+        if not hasattr(self, '_caption_segments') or not self._caption_segments:
+            QMessageBox.warning(
+                self,
+                self.tr("No Captions"),
+                self.tr("Please extract or load captions first."),
+            )
+            return
+        
+        # Import LLM modules
+        try:
+            from labelvid.agent import CaptionAnalyzer
+            from labelvid.agent import LLMClient
+            from labelvid.agent import LLMProvider
+        except ImportError as e:
+            QMessageBox.critical(
+                self,
+                self.tr("Import Error"),
+                self.tr("Failed to import LLM modules: %s\n\nInstall with: pip install -e \".[llm]\"") % str(e),
+            )
+            return
+        
+        # Map provider string to enum
+        provider_map = {
+            "openai": LLMProvider.OPENAI,
+            "gemini": LLMProvider.GEMINI,
+            "claude": LLMProvider.CLAUDE,
+        }
+        provider_enum = provider_map.get(provider, LLMProvider.OPENAI)
+        
+        # Create progress dialog
+        progress = QtWidgets.QProgressDialog(
+            self.tr("Analyzing captions with LLM..."),
+            self.tr("Cancel"),
+            0, 100,
+            self,
+        )
+        progress.setWindowTitle(self.tr("LLM Caption Analysis"))
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        
+        def update_progress(value: float, message: str) -> None:
+            if progress.wasCanceled():
+                return
+            progress.setValue(int(value * 100))
+            progress.setLabelText(message)
+            QtWidgets.QApplication.processEvents()
+        
+        try:
+            # Create LLM client and analyzer
+            llm_client = LLMClient(provider=provider_enum, api_key=api_key, model=model)
+            analyzer = CaptionAnalyzer(llm_client=llm_client)
+            
+            # Analyze captions
+            detections = analyzer.analyze_captions(
+                self._caption_segments,
+                progress_callback=update_progress,
+            )
+            
+            progress.close()
+            
+            if detections:
+                # Automatically save JSON to video output directory
+                try:
+                    output_dir = self._get_video_output_dir("llm_analysis")
+                    if self._video_path:
+                        video_name = Path(self._video_path).stem
+                        json_path = output_dir / f"{video_name}_llm_detections.json"
+                        
+                        # Export to JSON
+                        analyzer.export_to_json(detections, str(json_path))
+                        logger.info("LLM detections automatically saved to: {}", json_path)
+                except Exception as e:
+                    logger.error("Failed to auto-save LLM detections: {}", e)
+                
+                # Automatically fill clips from detections
+                self._fill_clips_from_llm_detections(detections)
+                
+                # Show success message
+                QMessageBox.information(
+                    self,
+                    self.tr("Analysis Complete"),
+                    self.tr("Found {} object detections.\nResults saved to: {}\nClips have been updated.").format(
+                        len(detections),
+                        json_path.name if 'json_path' in locals() else "llm_analysis folder"
+                    ),
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    self.tr("Analysis Complete"),
+                    self.tr("No object detections found in captions."),
+                )
+        
+        except Exception as e:
+            progress.close()
+            logger.error("LLM analysis failed: {}", e)
+            QMessageBox.critical(
+                self,
+                self.tr("Analysis Failed"),
+                self.tr("Failed to analyze captions:\n%s") % str(e),
+            )
+
+    def _show_batch_process_dialog(self) -> None:
+        """Show batch process dialog to choose processing mode."""
+        if not self.videoList:
+            QMessageBox.warning(
+                self,
+                self.tr("No Videos Loaded"),
+                self.tr("Please load videos first using File > Open Directory."),
+            )
+            return
+        
+        # Create dialog
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(self.tr("Batch Process"))
+        dialog.setMinimumWidth(400)
+        
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        # Info label
+        info_label = QtWidgets.QLabel(
+            self.tr(f"Process {len(self.videoList)} loaded videos:")
+        )
+        layout.addWidget(info_label)
+        
+        # Options
+        caption_only_btn = QtWidgets.QPushButton("📝 Caption Extraction Only")
+        caption_only_btn.setToolTip("Extract captions using Whisper and save to SRT")
+        caption_only_btn.clicked.connect(lambda: (dialog.accept(), self._batch_process(False)))
+        layout.addWidget(caption_only_btn)
+        
+        caption_llm_btn = QtWidgets.QPushButton("🤖 Caption + LLM Analysis")
+        caption_llm_btn.setToolTip("Extract captions and analyze with LLM")
+        caption_llm_btn.clicked.connect(lambda: (dialog.accept(), self._batch_process(True)))
+        layout.addWidget(caption_llm_btn)
+        
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        layout.addWidget(cancel_btn)
+        
+        dialog.exec_()
+
+    def _batch_process(self, llm_analyze: bool = False) -> None:
+        """Batch process all loaded videos.
+        
+        Args:
+            llm_analyze: If True, also run LLM analysis after caption extraction
+        """
+        if not self.videoList:
+            QMessageBox.warning(
+                self,
+                self.tr("No Videos Loaded"),
+                self.tr("Please load videos first using File > Open Directory."),
+            )
+            return
+        
+        # Check if Whisper is available
+        if not WHISPER_AVAILABLE:
+            QMessageBox.warning(
+                self,
+                self.tr("Whisper Not Available"),
+                self.tr("Please install Whisper: pip install -e \".[whisper]\""),
+            )
+            return
+        
+        # If LLM analysis is requested, check LLM availability
+        if llm_analyze:
+            try:
+                from labelvid.agent import CaptionAnalyzer, LLMClient, LLMProvider
+            except ImportError:
+                QMessageBox.warning(
+                    self,
+                    self.tr("LLM Not Available"),
+                    self.tr("Please install LLM dependencies: pip install -e \".[llm]\""),
+                )
+                return
+            
+            # Get LLM settings from widget
+            if not hasattr(self, 'captionAnalysisWidget'):
+                QMessageBox.warning(
+                    self,
+                    self.tr("LLM Settings Not Available"),
+                    self.tr("Please configure LLM settings first."),
+                )
+                return
+        
+        # Create progress dialog with detailed status
+        total_videos = len(self.videoList)
+        progress = QtWidgets.QProgressDialog(
+            self.tr("Initializing batch process..."),
+            self.tr("Cancel"),
+            0, 100,  # Use percentage instead of video count for finer control
+            self,
+        )
+        progress.setWindowTitle(self.tr("Batch Process"))
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setMinimumWidth(500)
+        progress.show()
+        
+        def update_batch_progress(video_idx: int, video_name: str, step: str, detail: str = "") -> None:
+            """Update batch progress with detailed information."""
+            if progress.wasCanceled():
+                return
+            
+            # Calculate overall progress
+            base_progress = int((video_idx / total_videos) * 100)
+            progress.setValue(base_progress)
+            
+            # Build detailed status message
+            status_lines = [
+                f"📹 Video {video_idx + 1}/{total_videos}: {video_name}",
+                f"",
+                f"🔄 Current Step: {step}",
+            ]
+            
+            if detail:
+                status_lines.append(f"   {detail}")
+            
+            progress.setLabelText("\n".join(status_lines))
+            QtWidgets.QApplication.processEvents()
+        
+        # Process each video
+        success_count = 0
+        failed_videos = []
+        
+        for i, video_path in enumerate(self.videoList):
+            if progress.wasCanceled():
+                break
+            
+            video_name = Path(video_path).name
+            
+            try:
+                # Step 1: Load video
+                update_batch_progress(i, video_name, "Loading video...", "")
+                self._load_video(video_path)
+                QtWidgets.QApplication.processEvents()
+                
+                # Step 2: Check/Extract captions
+                caption_exists = bool(self._caption_segments)
+                
+                if caption_exists:
+                    update_batch_progress(
+                        i, video_name, 
+                        "Captions found ✓", 
+                        f"Loaded {len(self._caption_segments)} caption segments"
+                    )
+                    logger.info("Captions already exist for: {} ({} segments)", video_name, len(self._caption_segments))
+                else:
+                    update_batch_progress(i, video_name, "Extracting captions...", "Using Whisper ASR")
+                    logger.info("Extracting captions for: {}", video_name)
+                    self._extract_captions()
+                    QtWidgets.QApplication.processEvents()
+                    
+                    if self._caption_segments:
+                        update_batch_progress(
+                            i, video_name, 
+                            "Caption extraction complete ✓", 
+                            f"Extracted {len(self._caption_segments)} segments"
+                        )
+                
+                # Step 3: Run LLM analysis if requested
+                if llm_analyze and self._caption_segments:
+                    num_segments = len(self._caption_segments)
+                    num_chunks = (num_segments + 19) // 20  # Calculate number of 20-segment chunks
+                    
+                    update_batch_progress(
+                        i, video_name, 
+                        "Starting LLM analysis...", 
+                        f"{num_segments} segments → {num_chunks} chunks"
+                    )
+                    logger.info("Running LLM analysis for: {} ({} segments, {} chunks)", 
+                               video_name, num_segments, num_chunks)
+                    
+                    # Get LLM settings
+                    provider_index = self.captionAnalysisWidget.providerCombo.currentIndex()
+                    provider_names = ["openai", "gemini", "claude"]
+                    provider = provider_names[provider_index]
+                    model = self.captionAnalysisWidget.modelCombo.currentText()
+                    api_key = self.captionAnalysisWidget.apiKeyInput.text().strip() or None
+                    
+                    # Map provider
+                    provider_map = {
+                        "openai": LLMProvider.OPENAI,
+                        "gemini": LLMProvider.GEMINI,
+                        "claude": LLMProvider.CLAUDE,
+                    }
+                    provider_enum = provider_map.get(provider, LLMProvider.OPENAI)
+                    
+                    # Create LLM client and analyzer
+                    llm_client = LLMClient(provider=provider_enum, api_key=api_key, model=model)
+                    analyzer = CaptionAnalyzer(llm_client=llm_client)
+                    
+                    # Analyze with progress callback
+                    def llm_progress_callback(chunk_progress: float, message: str) -> None:
+                        if progress.wasCanceled():
+                            return
+                        # Extract chunk info from message if available
+                        detail_msg = f"{message}"
+                        update_batch_progress(i, video_name, "Analyzing captions...", detail_msg)
+                    
+                    detections = analyzer.analyze_captions(
+                        self._caption_segments,
+                        progress_callback=llm_progress_callback
+                    )
+                    
+                    if detections:
+                        update_batch_progress(
+                            i, video_name, 
+                            "Saving results...", 
+                            f"Found {len(detections)} detections"
+                        )
+                        
+                        # Save JSON
+                        output_dir = self._get_video_output_dir("llm_analysis")
+                        json_path = Path(output_dir) / f"{Path(video_path).stem}_llm_detections.json"
+                        analyzer.export_to_json(detections, str(json_path))
+                        
+                        # Fill clips
+                        self._fill_clips_from_llm_detections(detections)
+                        
+                        update_batch_progress(
+                            i, video_name, 
+                            "Complete ✓", 
+                            f"{len(detections)} detections saved & clips updated"
+                        )
+                        logger.info("LLM analysis complete for: {}, found {} detections", video_name, len(detections))
+                    else:
+                        update_batch_progress(i, video_name, "Complete ✓", "No detections found")
+                else:
+                    update_batch_progress(i, video_name, "Complete ✓", "Captions saved")
+                
+                success_count += 1
+                
+            except Exception as e:
+                logger.error("Failed to process {}: {}", video_name, e)
+                failed_videos.append((video_name, str(e)))
+                update_batch_progress(i, video_name, "Failed ✗", str(e)[:50])
+        
+        progress.setValue(100)
+        progress.close()
+        
+        # Show summary
+        summary = self.tr(f"Batch processing complete!\n\n")
+        summary += self.tr(f"Successfully processed: {success_count}/{total_videos}\n")
+        
+        if failed_videos:
+            summary += self.tr(f"\nFailed videos:\n")
+            for video_name, error in failed_videos[:5]:  # Show first 5
+                summary += self.tr(f"  - {video_name}: {error}\n")
+            if len(failed_videos) > 5:
+                summary += self.tr(f"  ... and {len(failed_videos) - 5} more\n")
+        
+        QMessageBox.information(
+            self,
+            self.tr("Batch Process Complete"),
+            summary,
+        )
 
     def _on_clip_marker_dragging(self, clip_index: int, is_start: bool, frame: int) -> None:
         """Handle clip marker being dragged - update display in real-time."""
@@ -2549,7 +3419,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._clip_context_menu.exec_(self.clipListWidget.mapToGlobal(point))
 
     def _edit_selected_clip(self) -> None:
-        """Edit the label of the selected clip."""
+        """Edit the selected clip (all fields)."""
         items = self.clipListWidget.selectedItems()
         if not items:
             return
@@ -2557,20 +3427,8 @@ class MainWindow(QtWidgets.QMainWindow):
         item = items[0]  # Edit first selected
         clip = item.clip
         
-        # Prompt for new label
-        new_label, ok = QtWidgets.QInputDialog.getText(
-            self,
-            self.tr("Edit Clip Label"),
-            self.tr("Enter new label:"),
-            text=clip.label,
-        )
-        
-        if ok and new_label and new_label != clip.label:
-            clip.label = new_label
-            self._update_clip_list()
-            self._is_changed = True
-            self._auto_save_clips()
-            logger.info("Clip label changed to: {}", new_label)
+        # Use ClipDialog to edit all fields
+        self._edit_clip(clip)
 
     def _goto_clip_start(self) -> None:
         """Go to the start frame of the selected clip."""
@@ -2674,11 +3532,28 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             with open(filename, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                # Add video filename as reference
-                writer.writerow(["label", "start_frame", "end_frame", "video_file"])
+                # Header with all fields
+                writer.writerow([
+                    "label", "start_frame", "end_frame", "video_file",
+                    "detection_score", "recognition_score", "is_hazard", "description",
+                    "recognition", "scene", "category_id", "instance_id"
+                ])
                 video_basename = osp.basename(self.filename) if self.filename else ""
                 for clip in self._clips:
-                    writer.writerow([clip.label, clip.start_frame, clip.end_frame, video_basename])
+                    writer.writerow([
+                        clip.label,
+                        clip.start_frame,
+                        clip.end_frame,
+                        video_basename,
+                        clip.detection_score if clip.detection_score is not None else "",
+                        clip.recognition_score if clip.recognition_score is not None else "",
+                        clip.is_hazard if clip.is_hazard is not None else "",
+                        clip.description,
+                        clip.recognition,
+                        clip.scene,
+                        clip.category_id,
+                        clip.instance_id,
+                    ])
         except Exception as e:
             logger.error("Failed to write clips CSV {}: {}", filename, e)
             raise
@@ -2690,11 +3565,61 @@ class MainWindow(QtWidgets.QMainWindow):
             with open(filename, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for i, row in enumerate(reader):
+                    # Parse optional fields
+                    det_score = None
+                    if "detection_score" in row and row["detection_score"]:
+                        try:
+                            det_score = float(row["detection_score"])
+                        except ValueError:
+                            pass
+                    
+                    rec_score = None
+                    if "recognition_score" in row and row["recognition_score"]:
+                        try:
+                            rec_score = float(row["recognition_score"])
+                        except ValueError:
+                            pass
+                    
+                    is_hazard = None
+                    if "is_hazard" in row and row["is_hazard"]:
+                        is_hazard_str = row["is_hazard"].lower()
+                        if is_hazard_str in ("true", "1", "yes"):
+                            is_hazard = True
+                        elif is_hazard_str in ("false", "0", "no"):
+                            is_hazard = False
+                    
+                    description = row.get("description", "")
+                    recognition = row.get("recognition", "")
+                    scene = row.get("scene", "")
+                    
+                    # Parse category_id and instance_id
+                    category_id = 0
+                    if "category_id" in row and row["category_id"]:
+                        try:
+                            category_id = int(row["category_id"])
+                        except ValueError:
+                            pass
+                    
+                    instance_id = 0
+                    if "instance_id" in row and row["instance_id"]:
+                        try:
+                            instance_id = int(row["instance_id"])
+                        except ValueError:
+                            pass
+                    
                     clip = VideoClip(
                         label=row["label"],
                         start_frame=int(row["start_frame"]),
                         end_frame=int(row["end_frame"]),
                         color=_get_color_for_index(i),
+                        detection_score=det_score,
+                        recognition_score=rec_score,
+                        is_hazard=is_hazard,
+                        description=description,
+                        recognition=recognition,
+                        scene=scene,
+                        category_id=category_id,
+                        instance_id=instance_id,
                     )
                     self._clips.append(clip)
         except Exception as e:
