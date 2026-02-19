@@ -26,7 +26,7 @@
 
 ---
 
-[videomode](metadata/videomode.png)
+![videomode](metadata/videomode.png)
 
 ## Overview
 
