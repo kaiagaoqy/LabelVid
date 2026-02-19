@@ -1,322 +1,569 @@
-# LabelVid - Video Clipping & Image Annotation Tool
+# LabelVid - Video & Image Annotation Tool
 
-A professional video clipping and image annotation tool designed to work with [Labelme](https://github.com/wkentaro/labelme) for video annotation workflows.
+<div align="center">
 
-[中文文档](docs/README_zh.md) | [Documentation](README.md)
+**A video clipping and image annotation tool with AI-powered features**
 
-## Features
+[English](README.md) | [中文文档](docs/README_zh.md)
 
-### Video Mode (Video Clipping)
-- **Video Loading**: Open video files or scan folders for videos (supports MP4, AVI, MOV, MKV, WebM, etc.)
-- **Video Playback**: Play/pause, seek, and adjust playback speed (0.25x - 4x)
-- **Audio Playback**: Synchronized audio playback with volume control
-- **Clip Marking**: Mark start and end frames for video segments with detailed metadata
-  - Required: Label name
-  - Optional: Detection score (0-5), Recognition score (0-5), Hazard flag, Description, Recognition, Scene
-  - Category ID and Instance ID for dataset organization
-- **Object List Management**: Import JSON-based object lists for consistent labeling
-  - Dropdown label selection with category/instance ID display
-  - Auto-fill category and instance IDs when selecting labels
-  - Support for multiple instances of the same object
-  - Manual editing still available
-- **Visual Clip Timeline**: Interactive timeline showing all clips with draggable markers
-- **Frame Extraction**: Export first and last frames of each clip as images
-- **CSV Export**: Generate a table with clip information (label, start/end frame, scores, hazard, description, category/instance IDs)
-- **Auto-save**: Automatic saving of clips after each modification
-- **Auto-load**: Automatically load existing clips.csv and captions when opening a video
-- **Quick Jump**: Jump forward/backward by 1s, 5s, 10s, 30s, 1min, 5min for long videos
-- **Preview Quality**: Adjustable preview quality for smooth playback of long videos
-- **Clip Management**: Edit all fields, delete, and navigate clips via right-click context menu
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://opensource.org/licenses/GPL-3.0)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-### Caption & Speech Recognition
-- **AI Caption Extraction**: Use OpenAI Whisper for automatic speech recognition
-- **Multiple Models**: Support for tiny, base, small, medium, large, turbo models
-- **Multi-language**: Auto-detect or manually select transcription language
-- **Real-time Display**: Display captions in real-time during video playback
-- **Auto-load Captions**: Automatically load existing SRT files when opening videos
-- **Caption Export**: Export captions to SRT or WebVTT subtitle format
-- **Caption Search**: Search for keywords in captions and navigate between results
-- **Timeline Highlighting**: Highlight frames containing search keywords on the timeline
+</div>
 
-### LLM Caption Analysis
-- **AI-Powered Analysis**: Use GPT-5, GPT-4o, Gemini, or Claude to analyze captions
-- **Smart Chunking**: Automatically split long captions into 20-segment chunks for optimal processing
-- **Object Detection Extraction**: Extract object names, detection scores, recognition scores, hazard flags, and descriptions
-- **Multiple Providers**: Support for OpenAI (GPT-5, GPT-4o, etc.), Google (Gemini), and Anthropic (Claude)
-- **Auto-Fill Clips**: Automatically create/update video clips from LLM analysis results (category/instance IDs default to 0)
-- **Auto-Save JSON**: Results automatically saved to `<video_name>/llm_analysis/<video_name>_llm_detections.json`
-- **Secure API Key Storage**: Save API keys locally with QSettings
-- **Compact UI**: Collapsible settings panel for minimal screen space usage
-- **[📖 Full Documentation](docs/LLM_ANALYSIS.md)**
+---
 
-### Batch Processing
-- **One-Click Processing**: Process multiple videos automatically
-- **Caption Extraction Only**: Extract captions and save to SRT for all videos
-- **Caption + LLM Analysis**: Extract captions, analyze with LLM, and auto-fill clips
-- **Smart Skip**: Automatically load existing captions if available
-- **Detailed Progress**: Real-time progress display showing current video, step, and details
-- **Error Handling**: Continue processing remaining videos if one fails
+## 📖 Table of Contents
 
-### Image Mode (Image Annotation)
-- **Polygon Annotation**: Draw polygons around objects
-- **Rectangle/Bounding Box**: Draw rectangles for object detection
-- **Circle, Line, Point**: Additional shape types for various annotation needs
-- **AI-Assisted Annotation (SAM)**: Use SAM/SAM2 for automatic polygon generation
-- **Edit Mode**: Move, resize, and modify shapes
-- **Shape Management**: Edit labels, delete shapes via right-click context menu
-- **Point Editing**: Remove individual points from polygons
-- **Labelme Export**: Export annotations in Labelme-compatible JSON format
-- **WST Mode**: Work with Saved Thumbnails - load pre-extracted frames for annotation
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage Guide](#usage-guide)
+- [Documentation](#documentation)
+- [Building Executable](#building-executable)
+- [License](#license)
 
-### Output Organization
-All outputs are organized in a video-named folder:
+---
+
+![videomode](metadata/videomode.png)
+
+## Overview
+
+**LabelVid** is a comprehensive annotation tool designed for video analysis and image labeling workflows. It combines video clipping, speech recognition, LLM-powered caption analysis, and AI-assisted image segmentation into a unified interface.
+
+**Perfect for:**
+- 🎬 Video dataset preparation
+- 📝 Caption extraction and analysis
+- 🖼️ Image annotation (polygon, bounding box, etc.)
+- 🤖 AI-powered object detection workflows
+- 📊 Dataset organization with category/instance IDs
+
+---
+
+## Key Features
+
+### 🎬 Video Mode
+
+<details>
+<summary><b>Video Playback & Navigation</b></summary>
+
+- Multi-format support (MP4, AVI, MOV, MKV, WebM, etc.)
+- Synchronized audio/video playback
+- Variable playback speed (0.25x - 4x)
+- Quick jump buttons (1s, 5s, 10s, 30s, 1min, 5min)
+- Frame-by-frame navigation
+- Adjustable preview quality for long videos
+
+</details>
+
+<details>
+<summary><b>Video Clipping & Labeling</b></summary>
+
+- Mark clip start/end with visual timeline
+- Rich clip metadata:
+  - **Label** (required) - with dropdown support
+  - **Category ID** & **Instance ID** - for dataset organization
+  - Detection/Recognition scores (0-5 scale)
+  - Hazard flag, Scene, Description, Recognition
+- Interactive timeline with draggable clip markers
+- Right-click context menu for clip management
+- Auto-save after each modification
+- Frame extraction (first & last frame)
+- Export to JSON or CSV
+
+📖 [**Detailed Video Mode Guide →**](docs/VIDEO_MODE.md)
+
+</details>
+
+<details>
+<summary><b>Object List Management</b></summary>
+
+- Import JSON-based object lists for consistent labeling
+- Dropdown selection with formatted display: `"chair [cat:30, inst:1]"`
+- Auto-fill category/instance IDs based on selection
+- Support for multiple instances of the same object
+- Shared between Video and Image modes
+
+📖 [**Object List Guide →**](docs/OBJECT_LIST_FEATURE.md) | [**Quick Start →**](docs/OBJECT_LIST_QUICKSTART.md)
+
+</details>
+
+### 🎤 AI Caption Extraction (Whisper)
+
+<details>
+<summary><b>Speech Recognition</b></summary>
+
+- **OpenAI Whisper** integration (tiny → turbo models)
+- Multi-language support with auto-detection
+- Real-time caption display during playback
+- Export to SRT/WebVTT subtitle formats
+- Auto-load existing captions when opening videos
+- Search captions and highlight on timeline
+
+📖 [**Whisper Setup Guide →**](docs/WHISPER_SETUP.md)
+
+</details>
+
+### 🤖 LLM Caption Analysis
+
+<details>
+<summary><b>AI-Powered Analysis</b></summary>
+
+- **Support for**: GPT-5, GPT-4o, Gemini, Claude
+- Extract structured data from captions:
+  - Object names, detection/recognition scores
+  - Hazard flags, descriptions
+- Smart chunking (20-segment chunks for optimal processing)
+- Auto-fill video clips from analysis results
+- Auto-save analysis to JSON
+- Secure local API key storage
+- Collapsible compact UI
+
+📖 [**LLM Analysis Guide →**](docs/LLM_ANALYSIS.md) | [**Examples →**](docs/LLM_EXAMPLE.md)
+
+</details>
+
+### ⚡ Batch Processing
+
+<details>
+<summary><b>Multi-Video Automation</b></summary>
+
+- Process multiple videos automatically
+- **Modes**:
+  - Caption Extraction Only
+  - Caption + LLM Analysis (with auto-fill clips)
+- Smart skip: auto-load existing captions
+- Detailed real-time progress display:
+  - Current video (e.g., "Video 5/15: experiment_005.mp4")
+  - Current step (e.g., "Analyzing chunk 2/4...")
+  - Detailed info (e.g., "Found 15 detections")
+- Error handling: continue on failure
+
+📖 [**Batch Process Guide →**](docs/BATCH_PROCESS_FEATURE.md)
+
+</details>
+
+### 🖼️ Image Mode
+
+<details>
+<summary><b>Image Annotation & Segmentation</b></summary>
+
+- **Annotation Tools**:
+  - Polygon, Rectangle, Circle, Line, Point
+  - AI-assisted annotation (SAM/SAM2)
+  - Edit/Move mode for shape modification
+- **Label Management**:
+  - Object list integration with dropdown selection
+  - Category ID & Instance ID support
+  - Group ID for organizing related shapes
+  - Auto-fill IDs from object list
+- **WST Mode** (Work with Saved Thumbnails):
+  - Load pre-extracted frames
+  - Auto-load current video's `frames/` folder
+  - Label hints from video clips
+- **Auto-Save**:
+  - Save to image location automatically
+  - Auto-save on image switch, mode switch, or app close
+  - Keyboard shortcut: `Ctrl+S`
+- **Export**: Labelme-compatible JSON format
+
+📖 [**Image Mode Guide →**](docs/IMAGE_MODE.md) | [**SAM Setup →**](docs/SAM_SETUP.md)
+
+</details>
+
+### 📂 Output Organization
+
+All outputs are organized in video-named folders:
+
 ```
 video_name/
-├── clips.csv          # Clip information (label, start/end frame, scores, hazard, description, category/instance IDs)
-├── frames/            # Extracted frames
-├── captions/          # SRT/VTT subtitle files
-├── annotations/       # Labelme JSON annotations
-└── llm_analysis/      # LLM-extracted object detections (JSON)
-    └── <video_name>_llm_detections.json
+├── clips.json                 # Clip metadata (with category/instance IDs)
+├── clips.csv                  # Legacy CSV format (auto-migrated)
+├── frames/                    # Extracted frames
+│   ├── clip1_start_0150.jpg
+│   ├── clip1_start_0150.json  # Auto-saved annotations
+│   └── ...
+├── captions/
+│   └── video_name.srt         # Whisper captions
+├── annotations/               # Manual save annotations
+│   └── frame_0150.json
+└── llm_analysis/
+    └── video_name_llm_detections.json  # LLM analysis results
 ```
+
+---
 
 ## Installation
 
-### From Source (Development)
+### Option 1: From Pre-built Release (Recommended)
+
+Download the latest release from [Releases](https://github.com/yourusername/labelvid/releases):
+
 ```bash
+# macOS
+unzip LabelVid-v0.1.0-macOS-arm64-Full.zip
+cd LabelVid-v0.1.0-macOS-arm64-Full
+sudo xattr -rd com.apple.quarantine dist/LabelVid.app
+open dist/LabelVid.app
+```
+
+The **Full Version** includes:
+- ✅ FFmpeg bundled (no installation needed)
+- ✅ Whisper ready to use
+- ✅ LLM support (API key required)
+- ✅ SAM/SAM2 models auto-download
+
+### Option 2: From Source
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/labelvid.git
 cd labelvid
+
+# Install dependencies
 pip install -e .
+
+# Install optional features
+pip install -e ".[all]"  # All features (Whisper, LLM, SAM)
+# Or individually:
+pip install -e ".[whisper]"  # Whisper only
+pip install -e ".[llm]"      # LLM only
+pip install -e ".[ai]"       # SAM only
 ```
 
-### Optional Dependencies
-
-For AI-assisted annotation (SAM support):
-```bash
-pip install -e ".[ai]"
-```
-
-For Whisper caption extraction:
-```bash
-pip install -e ".[whisper]"
-```
-
-For LLM caption analysis:
-```bash
-pip install -e ".[llm]"
-```
-
-For all features:
-```bash
-pip install -e ".[all]"
-```
+> **Note for Developers**: If you're building an executable with PyInstaller, use `opencv-python-headless` instead of `opencv-python` to avoid recursion errors during packaging. See [CV2_FIX_SUCCESS.md](CV2_FIX_SUCCESS.md) for details.
 
 ### System Requirements
 
-**FFmpeg** is required for audio extraction and Whisper:
-```bash
-# macOS
-brew install ffmpeg
-sudo xattr -rd com.apple.quarantine PATH-TO-APP
+**Required:**
+- Python 3.8+
+- FFmpeg (for audio extraction)
+  - macOS: `brew install ffmpeg`
+  - Ubuntu: `sudo apt install ffmpeg`
+  - Windows: Download from [ffmpeg.org](https://ffmpeg.org/)
 
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
+**Optional:**
+- CUDA-compatible GPU (for faster Whisper/SAM inference)
 
-# Windows (using Chocolatey)
-choco install ffmpeg
+📖 [**FFmpeg Troubleshooting →**](docs/FFMPEG_TROUBLESHOOTING.md)
 
-# Windows (using Scoop)
-scoop install ffmpeg
-```
+---
 
 ## Quick Start
 
-For quick testing without installation:
+### Launch the App
+
 ```bash
-python run.py
-python run.py /path/to/video.mp4
-python run.py /path/to/video/folder
+# From release package
+open dist/LabelVid.app  # macOS
+./dist/LabelVid         # Linux
+dist\LabelVid.exe       # Windows
+
+# From source
+labelvid                           # GUI only
+labelvid /path/to/video.mp4       # Open video
+labelvid /path/to/video/folder    # Load folder
+python run.py                      # Development mode
 ```
 
-## Usage
+### Basic Workflow
 
-### Launch the Application
-```bash
-labelvid
-labelvid /path/to/video.mp4
-labelvid /path/to/video/folder
+#### 1️⃣ Video Clipping
+
+```
+Open Video → Mark Start/End → Fill Clip Info → Extract Frames
 ```
 
-### Video Mode Workflow
-1. **Open Video**: Use File > Open to select a video file
-2. **Import Object List** (optional):
-   - File > 📋 Manage Object List
-   - Import JSON file with object definitions
-   - Format: `[{"category_id": 1, "instance_id": 0, "label_name": "chair"}, ...]`
-   - See `object_list.json` or `example_object_list.json` for examples
-3. **Navigate**: Use the slider, playback controls, or quick jump buttons
-4. **Mark Clips**: 
-   - Click "Mark Start" (or press `[`) to mark the beginning
-   - Click "Mark End" (or press `]`) to mark the end
-   - Enter clip details in the dialog:
-     - **Label** (required): Select from dropdown (if object list imported) or type manually
-     - **Category/Instance IDs**: Auto-filled when selecting from dropdown, or manually enter
-     - **Recognition** (optional): Recognition result
-     - **Scene** (optional): Scene description
-     - **Detection Score** (optional): 0-5 scale
-     - **Recognition Score** (optional): 0-5 scale
-     - **Is Hazard** (optional): Yes/No/Not set
-     - **Description** (optional): Free text
-5. **Manage Clips**: 
-   - Right-click clips to edit all fields, delete, or jump to start/end
-   - Drag markers on the timeline to adjust clip boundaries
-   - Double-click clips to edit
-6. **LLM Analysis** (optional):
-   - Extract captions using Whisper
-   - Click "🤖 Analyze & Fill Clips"
-   - Configure LLM provider and model (click ⚙️)
-   - LLM will automatically fill clip fields from captions (category/instance IDs default to 0)
-7. **Batch Processing** (optional):
-   - Load multiple videos (File > Open Directory)
-   - Click "⚡ Batch Process" button
-   - Choose: Caption Extraction Only or Caption + LLM Analysis
-   - Monitor detailed progress for each video
-8. **Export**: Click "Extract Frames" to export frames and CSV
+<details>
+<summary>Detailed Steps</summary>
 
-### Image Mode Workflow
-1. **Switch Mode**: Click the mode toggle button or press `Ctrl+M`
-2. **Select Image Source**: Current frame, WST folder, or auto-extract
-3. **Draw Shapes**: Choose tool and click on the image
-4. **Label Shapes**: Enter a label when prompted
-5. **Edit Shapes**: Use Edit/Move mode (`E`) to modify shapes
-6. **Save**: Click "Save Annotation" for Labelme JSON format
+1. **File → Open** or **Open Directory**
+2. **File → Manage Object List** (optional, for consistent labeling)
+3. Navigate to desired frame
+4. Press `[` or click **Mark Start**
+5. Navigate to end frame
+6. Press `]` or click **Mark End**
+7. Fill clip dialog:
+   - Select label from dropdown (if object list loaded)
+   - Category/Instance IDs auto-fill
+   - Add scores, description (optional)
+8. Click **Extract Frames** to export
 
-## Keyboard Shortcuts
+</details>
 
-| Key | Action |
-|-----|--------|
-| **General** | |
-| Ctrl+M | Toggle Video/Image Mode |
-| Ctrl+O | Open file |
-| Ctrl+D | Open directory |
-| Ctrl+Q | Quit |
-| **Video Mode** | |
-| Space | Play/Pause |
-| Left/Right Arrow | Previous/Next frame |
-| Shift+Left/Right | Jump backward/forward |
-| `[` | Mark clip start |
-| `]` | Mark clip end |
-| Delete | Delete selected clip |
-| 1-6 | Quick jump (1s, 5s, 10s, 30s, 1min, 5min) |
-| **Image Mode** | |
-| P | Polygon mode |
-| R | Rectangle mode |
-| A | AI Polygon (SAM) mode |
-| E | Edit/Move mode |
-| Ctrl+Shift+S | Save annotation |
-| Escape | Cancel current drawing |
-| Enter/Space | Finalize shape |
-| Delete | Delete selected shape/point |
+#### 2️⃣ Caption Extraction & Analysis
 
-## AI-Assisted Annotation (SAM)
+```
+Extract Captions → Analyze with LLM → Auto-fill Clips
+```
 
-1. Install: `pip install -e ".[ai]"`
-2. Switch to Image Mode
-3. Select "AI Polygon" and choose SAM model version
-4. Click to add positive points, Shift+Click for negative points
-5. Press Enter/Space or Ctrl+Click to finalize
+<details>
+<summary>Detailed Steps</summary>
 
-**Available SAM Models:**
-- `sam2:tiny/small/base/large` - SAM2 variants (recommended)
-- `sam:vit_h/l/b` - Original SAM variants
+1. Enable **"Captions (Whisper)"** checkbox
+2. Select model and language
+3. Click **Extract Captions**
+4. Wait for processing (status bar shows progress)
+5. Click **🤖 Analyze & Fill Clips**
+6. Configure LLM (click ⚙️):
+   - Select provider (OpenAI/Gemini/Claude)
+   - Enter API key
+   - Choose model
+7. Click **Analyze** → clips auto-generated
+8. Review and modify clips as needed
 
-## Object List Management
+</details>
 
-Use object lists to standardize labeling across your dataset:
+#### 3️⃣ Batch Processing
 
-1. **Create Object List JSON**:
+```
+Load Videos → Select Mode → Monitor Progress → Review Results
+```
+
+<details>
+<summary>Detailed Steps</summary>
+
+1. **File → Open Directory** (select folder with multiple videos)
+2. Click **⚡ Batch Process** button
+3. Choose mode:
+   - **Caption Extraction Only**
+   - **Caption + LLM Analysis**
+4. Monitor detailed progress for each video
+5. Review summary of successful/failed videos
+
+</details>
+
+#### 4️⃣ Image Annotation
+
+```
+Switch to Image Mode → Create Shapes → Auto-Save
+```
+
+<details>
+<summary>Detailed Steps</summary>
+
+1. Click **Toggle Mode** or press `Ctrl+M`
+2. Choose image source:
+   - **Open Image File**: Single image
+   - **WST (Work with Saved Thumbnails)**: Folder of images
+   - **Auto-extract**: Extract frames automatically
+3. Select annotation tool:
+   - `P`: Polygon
+   - `R`: Rectangle
+   - `A`: AI Polygon (SAM)
+4. Draw shape on image
+5. Label dialog appears:
+   - Select label from dropdown (if object list loaded)
+   - Category/Instance IDs auto-fill
+   - Add flags, description (optional)
+6. Enable **"Auto-save to image location"** for quick workflow
+7. Press `Ctrl+S` or click **💾 Save**
+
+</details>
+
+---
+
+## Usage Guide
+
+### Keyboard Shortcuts
+
+| Shortcut | Action | Mode |
+|----------|--------|------|
+| **General** | | |
+| `Ctrl+M` | Toggle Video/Image Mode | All |
+| `Ctrl+O` | Open file | All |
+| `Ctrl+D` | Open directory | All |
+| `Ctrl+Q` | Quit | All |
+| **Video Mode** | | |
+| `Space` | Play/Pause | Video |
+| `←` / `→` | Previous/Next frame | Video |
+| `Shift+←/→` | Jump backward/forward | Video |
+| `[` | Mark clip start | Video |
+| `]` | Mark clip end | Video |
+| `Delete` | Delete selected clip | Video |
+| `1-6` | Quick jump (1s, 5s, 10s, 30s, 1min, 5min) | Video |
+| **Image Mode** | | |
+| `P` | Polygon mode | Image |
+| `R` | Rectangle mode | Image |
+| `A` | AI Polygon (SAM) | Image |
+| `E` | Edit/Move mode | Image |
+| `Ctrl+S` | Auto-save annotation | Image |
+| `Ctrl+Shift+S` | Save with dialog | Image |
+| `Enter`/`Space` | Finalize shape | Image |
+| `Escape` | Cancel drawing | Image |
+| `Delete` | Delete shape/point | Image |
+
+### Common Tasks
+
+<details>
+<summary><b>How to use Object Lists?</b></summary>
+
+1. Create JSON file:
 ```json
 [
-  {
-    "category_id": 28,
-    "instance_id": 0,
-    "label_name": "red suitcase"
-  },
-  {
-    "category_id": 30,
-    "instance_id": 0,
-    "label_name": "chair"
-  },
-  {
-    "category_id": 30,
-    "instance_id": 1,
-    "label_name": "chair"
-  }
+  {"category_id": 28, "instance_id": 0, "label_name": "red suitcase"},
+  {"category_id": 30, "instance_id": 0, "label_name": "chair"},
+  {"category_id": 30, "instance_id": 1, "label_name": "chair"}
 ]
 ```
 
-2. **Import Object List**:
-   - File > 📋 Manage Object List
-   - Click "📂 Import JSON"
-   - Select your object list file
+2. Import: **File → Manage Object List → Import JSON**
+3. Use in both Video and Image modes
+4. Labels appear as dropdown with auto-fill IDs
 
-3. **Use in Clips**:
-   - When creating/editing clips, labels appear as dropdown: `"chair [cat:30, inst:1]"`
-   - Category and Instance IDs auto-fill when selecting from dropdown
-   - Manually edit IDs if needed
-   - Can still type custom labels not in the list
+📖 [**Full Object List Guide →**](docs/OBJECT_LIST_FEATURE.md)
 
-4. **Benefits**:
-   - ✅ Consistent labeling across team
-   - ✅ Clear distinction between multiple instances
-   - ✅ Dataset-ready category/instance IDs
-   - ✅ Faster labeling with dropdown selection
+</details>
 
-See `object_list.json` or `example_object_list.json` for full examples.
+<details>
+<summary><b>How to configure LLM analysis?</b></summary>
 
-## Batch Processing
+1. Click **🤖 Analyze & Fill Clips** button
+2. Click **⚙️** settings icon
+3. Select provider:
+   - **OpenAI**: GPT-5, GPT-5-mini, GPT-4o
+   - **Gemini**: gemini-2.0-flash
+   - **Claude**: claude-3.5-sonnet
+4. Enter API key
+5. Check **"Save API Key"** to remember
+6. Click **Analyze**
 
-Process multiple videos automatically:
+📖 [**LLM Setup Guide →**](docs/LLM_ANALYSIS.md)
 
-1. **Load Videos**: File > Open Directory
-2. **Start Batch Process**: Click "⚡ Batch Process" button
-3. **Choose Mode**:
-   - **Caption Extraction Only**: Extract and save captions to SRT
-   - **Caption + LLM Analysis**: Extract captions, analyze with LLM, auto-fill clips, save JSON
-4. **Monitor Progress**: Real-time display shows:
-   - Current video (e.g., "Video 5/15: experiment_005.mp4")
-   - Current step (e.g., "Extracting captions...", "Analyzing chunk 2/4...")
-   - Detailed information (e.g., "Loaded 72 caption segments", "Found 15 detections")
-5. **Review Results**: Check summary of successful/failed videos
+</details>
 
-**Smart Skip**: If captions already exist, they're automatically loaded and LLM analysis proceeds directly.
+<details>
+<summary><b>How to use AI-assisted annotation (SAM)?</b></summary>
 
-## Whisper Caption Extraction
+1. Install: `pip install -e ".[ai]"`
+2. Switch to Image Mode
+3. Select **AI Polygon** tool (or press `A`)
+4. Choose model: sam2:base (recommended)
+5. Click to add positive points
+6. Shift+Click for negative points
+7. Press Enter/Space to finalize
 
-1. Install: `pip install -e ".[whisper]"`
-2. Load a video in Video Mode
-3. Enable "Captions (Whisper)" checkbox
-4. Select model and language
-5. Click "Extract Captions"
-6. Export to SRT/WebVTT using "Export SRT"
+📖 [**SAM Setup Guide →**](docs/SAM_SETUP.md)
 
-**Available Models:** tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v2, large-v3, turbo
+</details>
+
+<details>
+<summary><b>How to extract frames from clips?</b></summary>
+
+1. Mark clips in Video Mode
+2. Click **Extract Frames** button
+3. Frames saved to `<video_name>/frames/`
+4. Each clip extracts first & last frame
+5. Frame paths automatically saved to `clips.json`
+6. Use in Image Mode (WST) for annotation
+
+</details>
+
+<details>
+<summary><b>How does auto-save work in Image Mode?</b></summary>
+
+- **Enable**: Check **"Auto-save to image location"**
+- **Triggers**:
+  - Switching images (Prev/Next)
+  - Switching to Video Mode
+  - Closing application
+- **Location**: Same directory as image (e.g., `image.jpg` → `image.json`)
+- **Manual save**: `Ctrl+Shift+S` for custom location
+
+📖 [**Auto-Save Guide →**](docs/AUTO_SAVE_ANNOTATION_FEATURE.md)
+
+</details>
+
+---
+
+## Documentation
+
+### Feature Guides
+
+- [📖 Video Mode Detailed Guide](docs/VIDEO_MODE.md)
+- [📖 Image Mode Detailed Guide](docs/IMAGE_MODE.md)
+- [📖 Object List Management](docs/OBJECT_LIST_FEATURE.md)
+- [📖 LLM Caption Analysis](docs/LLM_ANALYSIS.md)
+- [📖 Batch Processing](docs/BATCH_PROCESS_FEATURE.md)
+- [📖 Auto-Save Annotation](docs/AUTO_SAVE_ANNOTATION_FEATURE.md)
+
+### Setup & Configuration
+
+- [⚙️ FFmpeg Installation & Troubleshooting](docs/FFMPEG_TROUBLESHOOTING.md)
+- [⚙️ Whisper Setup](docs/WHISPER_SETUP.md)
+- [⚙️ SAM/SAM2 Setup](docs/SAM_SETUP.md)
+- [⚙️ LLM Configuration](docs/LLM_ANALYSIS.md)
+
+### Development
+
+- [🔧 Building Executable](docs/QUICK_RELEASE.md)
+- [🔧 Full Version Build (with FFmpeg)](docs/FULL_VERSION_BUILD_GUIDE.md)
+- [📋 Release Notes v0.1.0](docs/RELEASE_NOTES_v0.1.0.md)
+- [🧪 Testing Guide](docs/TESTING.md)
+
+---
 
 ## Building Executable
 
-To create a standalone executable:
+### Prerequisites
+
+For building executables, **use `opencv-python-headless` instead of `opencv-python`**:
 
 ```bash
-# For conda users (recommended)
-conda activate labelvid
+pip uninstall opencv-python
+pip install opencv-python-headless==4.10.0.84
+```
+
+This avoids PyInstaller recursion errors during packaging. See [CV2_FIX_SUCCESS.md](CV2_FIX_SUCCESS.md) for details.
+
+### Build Commands
+
+```bash
+# Quick build (recommended)
 ./build_release.sh
 
 # Or manually
-python build_exe.py
+python build_exe.py --clean
 python create_release.py
+
+# Build Full Version (with bundled FFmpeg)
+./build_full_release.sh
 ```
 
-See [QUICK_RELEASE.md](docs/QUICK_RELEASE.md) for detailed release instructions.
+**Output:**
+- `releases/LabelVid-v0.1.0-<platform>-<arch>.zip` (Standard version)
+- `releases/LabelVid-v0.1.0-<platform>-<arch>-Full.zip` (Full version)
+
+📖 [**Detailed Build Guide →**](docs/QUICK_RELEASE.md)
+
+---
 
 ## License
 
-GPL-3.0
+This project is licensed under the **GPL-3.0 License**. See [LICENSE](LICENSE) for details.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
+
+---
+
+## Acknowledgments
+
+- [Labelme](https://github.com/wkentaro/labelme) - Image annotation inspiration
+- [OpenAI Whisper](https://github.com/openai/whisper) - Speech recognition
+- [Segment Anything (SAM)](https://github.com/facebookresearch/segment-anything) - AI segmentation
+- [OSAM](https://github.com/jovialniyo93/osam) - SAM integration wrapper
+
+---
+
+<div align="center">
+
+**Made with ❤️ for AI/ML dataset preparation**
+
+[⬆ Back to Top](#labelvid---video--image-annotation-tool)
+
+</div>
