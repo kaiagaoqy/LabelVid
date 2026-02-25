@@ -169,6 +169,14 @@ class Shape:
 
         self.points.pop(i)
         self.point_labels.pop(i)
+        
+        # Clear highlight if we removed the highlighted point
+        if self._highlightIndex is not None:
+            if self._highlightIndex == i:
+                self._highlightIndex = None
+            elif self._highlightIndex > i:
+                # Adjust highlight index if it's after the removed point
+                self._highlightIndex -= 1
 
     def isClosed(self):
         return self._closed

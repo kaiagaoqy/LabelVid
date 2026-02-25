@@ -101,8 +101,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     return changelog_path
 
 
-def create_release_package(version=None, output_dir='releases'):
-    """Create a release package."""
+def create_release_package(version=None, output_dir='releases', suffix=None):
+    """Create a release package.
+    
+    Args:
+        version: Version string (e.g., "0.1.0")
+        output_dir: Output directory for the release package
+        suffix: Optional suffix for the package name (e.g., "Full", "Lite")
+    """
     if version is None:
         version = get_version()
     
@@ -112,8 +118,11 @@ def create_release_package(version=None, output_dir='releases'):
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     
-    # Package name
-    package_name = f"LabelVid-v{version}-{platform_name}-{arch}"
+    # Package name with optional suffix
+    if suffix:
+        package_name = f"LabelVid-v{version}-{platform_name}-{arch}-{suffix}"
+    else:
+        package_name = f"LabelVid-v{version}-{platform_name}-{arch}"
     package_path = output_path / f"{package_name}.zip"
     
     print(f"\nCreating release package: {package_name}")
@@ -270,6 +279,7 @@ def main():
     parser = argparse.ArgumentParser(description='Create LabelVid release package')
     parser.add_argument('--version', help='Version number (default: from pyproject.toml)')
     parser.add_argument('--output', default='releases', help='Output directory for packages')
+    parser.add_argument('--suffix', help='Package name suffix (e.g., "Full", "Lite")')
     parser.add_argument('--github', action='store_true', help='Create GitHub release')
     parser.add_argument('--build', action='store_true', help='Build executable before packaging')
     args = parser.parse_args()
@@ -292,7 +302,8 @@ def main():
     # Create package
     package_path = create_release_package(
         version=args.version,
-        output_dir=args.output
+        output_dir=args.output,
+        suffix=args.suffix
     )
     
     if not package_path:

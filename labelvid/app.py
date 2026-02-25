@@ -1123,6 +1123,12 @@ class MainWindow(QtWidgets.QMainWindow):
             "Ctrl+Z",
             tip=self.tr("Undo last shape edit"),
         )
+        remove_point = action(
+            self.tr("Remove Point"),
+            self._remove_selected_point,
+            "Backspace",
+            tip=self.tr("Remove selected point from polygon"),
+        )
         save_annotation = action(
             self.tr("Save Annotation"),
             self._save_annotation,
@@ -1168,6 +1174,7 @@ class MainWindow(QtWidgets.QMainWindow):
             edit_shape_label=edit_shape_label,
             delete_shape=delete_shape,
             undo_shape=undo_shape,
+            remove_point=remove_point,
             about=action(
                 text=f"&About {__appname__}",
                 slot=functools.partial(
@@ -1244,12 +1251,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menus.annotation.addAction(self.actions.create_ai_polygon)
         self.menus.annotation.addSeparator()
         self.menus.annotation.addAction(self.actions.edit_mode)
+        self.menus.annotation.addAction(self.actions.edit_shape_label)
+        self.menus.annotation.addSeparator()
+        self.menus.annotation.addAction(self.actions.remove_point)
+        self.menus.annotation.addAction(self.actions.delete_shape)
+        self.menus.annotation.addAction(self.actions.undo_shape)
         self.menus.annotation.addSeparator()
         self.menus.annotation.addAction(self.actions.auto_save_annotation)
         self.menus.annotation.addAction(self.actions.save_annotation)
 
         # Help menu
         self.menus.help.addAction(self.actions.about)
+        
+        # Add shape editing actions to main window for global shortcuts
+        # These actions need to be added to the window to respond to keyboard shortcuts
+        self.addAction(self.actions.remove_point)
+        self.addAction(self.actions.delete_shape)
+        self.addAction(self.actions.undo_shape)
 
     def _init_toolbar(self) -> None:
         """Initialize toolbar."""
@@ -4966,7 +4984,7 @@ class MainWindow(QtWidgets.QMainWindow):
         edit_label_action = QtWidgets.QAction(self.tr("Edit Label"), self)
         edit_label_action.triggered.connect(self._edit_shape_label)
         
-        edit_mode_action = QtWidgets.QAction(self.tr("🔧 Edit/Move Mode"), self)
+        edit_mode_action = QtWidgets.QAction(self.tr("Edit/Move Mode"), self)
         edit_mode_action.triggered.connect(self._toggle_edit_mode)
         
         # Remove point action (only enabled when a vertex is selected)
@@ -4974,7 +4992,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._remove_point_action.triggered.connect(self._remove_selected_point)
         self._remove_point_action.setEnabled(False)
         
-        delete_shape_action = QtWidgets.QAction(self.tr("❌ Delete Shape"), self)
+        delete_shape_action = QtWidgets.QAction(self.tr("Delete Shape"), self)
         delete_shape_action.triggered.connect(self._delete_selected_shapes)
         
         undo_action = QtWidgets.QAction(self.tr("Undo"), self)
@@ -5043,15 +5061,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _remove_selected_point(self) -> None:
         """Remove the selected point from a polygon shape."""
+        # Check if a point is selected BEFORE calling removeSelectedPoint
+        if not self.canvas._lasthShape or self.canvas._lasthVertex is None:
+            self.statusBar().showMessage(self.tr("No point selected. Click on a point to select it first."))
+            return
+        
+        # Get shape reference before removal (since removeSelectedPoint will clear it)
+        shape = self.canvas._lasthShape
+        if not shape.canRemovePoint():
+            shape_type = shape.shape_type
+            min_points = 3 if shape_type == "polygon" else 2
+            self.statusBar().showMessage(
+                self.tr(f"Cannot remove point: {shape_type} needs at least {min_points} points")
+            )
+            return
+        
+        # Remove the point (this clears hShape and _lasthVertex)
         self.canvas.removeSelectedPoint()
-        self.canvas.update()
-        
-        # If the shape has no points left, delete it
-        if self.canvas.hShape and not self.canvas.hShape.points:
-            self.canvas.deleteShape(self.canvas.hShape)
-            self._update_shape_list()
-        
+        # No need to call update() here - removeSelectedPoint already calls repaint()
+        self._update_shape_list()
         self._is_changed = True
+        
+        self.statusBar().showMessage(self.tr("Point removed"))
 
     def _delete_selected_shapes(self) -> None:
         """Delete selected shapes."""

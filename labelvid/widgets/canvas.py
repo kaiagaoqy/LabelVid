@@ -204,10 +204,14 @@ class Canvas(QtWidgets.QWidget):
                 shape=shape,
                 createMode=self.createMode,
             )
-        except ImportError:
-            logger.warning("AI annotation requires osam and imgviz packages")
+        except ImportError as e:
+            logger.warning(f"AI annotation requires osam and imgviz packages: {e}")
+            import traceback
+            logger.debug(f"Import traceback:\n{traceback.format_exc()}")
         except Exception as e:
             logger.error(f"AI annotation failed: {e}")
+            import traceback
+            logger.debug(f"Traceback:\n{traceback.format_exc()}")
 
     def storeShapes(self):
         shapesBackup = []
@@ -531,9 +535,15 @@ class Canvas(QtWidgets.QWidget):
             return
         shape.removePoint(index)
         shape.highlightClear()
-        self.hShape = shape
+        # Clear all highlights and vertex selection
+        self.hShape = None
+        self.hVertex = None
+        self.hEdge = None
+        self._lasthShape = None
         self._lasthVertex = None
+        self._lasthEdge = None
         self.movingShape = True  # Save changes
+        self.repaint()  # Force immediate repaint
 
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
         pos: QPointF = self.transformPos(a0.localPos())
